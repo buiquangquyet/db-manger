@@ -38,6 +38,8 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.objectTruncate, connectionId, target),
   renameTable: (connectionId: string, target: DataTarget, newName: string) =>
     ipcRenderer.invoke(IpcChannels.objectRename, connectionId, target, newName),
+  createDatabase: (connectionId: string, name: string) =>
+    ipcRenderer.invoke(IpcChannels.databaseCreate, connectionId, name),
   dropDatabase: (connectionId: string, name: string) =>
     ipcRenderer.invoke(IpcChannels.databaseDrop, connectionId, name),
   updateCell: (

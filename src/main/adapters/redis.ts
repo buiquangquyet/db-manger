@@ -165,6 +165,10 @@ export class RedisAdapter implements DatabaseAdapter {
     throw new Error('Redis không hỗ trợ đổi tên keyspace.');
   }
 
+  async createDatabase(): Promise<void> {
+    throw new Error('Redis có sẵn số database cố định (db0..dbN) — không tạo mới được.');
+  }
+
   async dropDatabase(name: string): Promise<void> {
     await this.r().select(Number(name) || 0);
     await this.r().flushdb();

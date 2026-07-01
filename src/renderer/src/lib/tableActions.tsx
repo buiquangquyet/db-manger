@@ -9,6 +9,22 @@ export interface TableActionCtx {
   label: string;
 }
 
+/** Hộp thoại nhập một chuỗi. Trả về giá trị đã trim, hoặc null nếu hủy/để trống. */
+export function promptInput(title: string, placeholder = ''): Promise<string | null> {
+  return new Promise((resolve) => {
+    let value = '';
+    Modal.confirm({
+      title,
+      icon: null,
+      content: <Input placeholder={placeholder} autoFocus onChange={(e) => (value = e.target.value)} />,
+      okText: 'OK',
+      cancelText: 'Hủy',
+      onOk: () => resolve(value.trim() || null),
+      onCancel: () => resolve(null),
+    });
+  });
+}
+
 /** Truncate có xác nhận. Trả về true nếu đã thực hiện (để caller refresh). */
 export function confirmTruncate({ connectionId, target, label }: TableActionCtx): Promise<boolean> {
   return new Promise((resolve) => {

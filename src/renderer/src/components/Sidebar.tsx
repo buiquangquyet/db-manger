@@ -12,7 +12,7 @@ import {
 import type { DataTarget, DbKind, StoredConnection, TreeNode } from '@shared/types';
 import { ConnectionModal } from './ConnectionModal';
 import { CreateTableModal } from './CreateTableModal';
-import { buildTableMenu } from '../lib/tableActions';
+import { buildTableMenu, promptInput } from '../lib/tableActions';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
 const canManage = (kind: DbKind): boolean => kind !== 'redis';
@@ -143,6 +143,19 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     name: (raw.meta?.name as string) ?? raw.label,
   });
 
+  const handleCreateDatabase = async (conn: StoredConnection) => {
+    const name = await promptInput('Tạo database mới', 'Tên database');
+    if (!name) return;
+    try {
+      await onOpen(conn); // đảm bảo phiên đã mở trước khi chạy lệnh
+      await window.api.createDatabase(conn.id, name);
+      message.success(`Đã tạo database "${name}"`);
+      await loadRoot(conn); // tải lại danh sách database để hiện cái mới
+    } catch (err) {
+      message.error(`Tạo database thất bại: ${(err as Error).message}`);
+    }
+  };
+
   const handleDropDatabase = (connectionId: string, ui: UiNode) => {
     if (!ui.raw) return;
     const name = (ui.raw.meta?.database as string) ?? ui.raw.label;
@@ -227,11 +240,13 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                     menu={{
                       items: [
                         { key: 'open', label: 'Mở kết nối' },
+                        ...(canManage(conn.kind) ? [{ key: 'createDb', label: 'Tạo database mới' }] : []),
                         { key: 'edit', label: 'Sửa' },
                         { key: 'delete', label: 'Xóa', danger: true },
                       ],
                       onClick: async ({ key }) => {
                         if (key === 'open') void loadRoot(conn);
+                        else if (key === 'createDb') void handleCreateDatabase(conn);
                         else if (key === 'edit') {
                           setEditing(conn);
                           setModalOpen(true);

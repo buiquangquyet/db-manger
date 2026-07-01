@@ -261,6 +261,10 @@ export class MariaDbAdapter implements DatabaseAdapter {
     await this.db().query(`RENAME TABLE ${this.qualify(target)} TO ${this.qualify(target, newName)}`);
   }
 
+  async createDatabase(name: string): Promise<void> {
+    await this.db().query(`CREATE DATABASE ${quoteIdentMysql(name)}`);
+  }
+
   async dropDatabase(name: string): Promise<void> {
     await this.db().query(`DROP DATABASE ${quoteIdentMysql(name)}`);
   }

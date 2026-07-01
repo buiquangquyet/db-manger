@@ -315,6 +315,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.db().query(`ALTER TABLE ${this.qualify(target)} RENAME TO ${quoteIdentPg(newName)}`);
   }
 
+  async createDatabase(name: string): Promise<void> {
+    await this.db().query(`CREATE DATABASE ${quoteIdentPg(name)}`);
+  }
+
   async dropDatabase(name: string): Promise<void> {
     // Không thể xóa database đang kết nối; Postgres sẽ báo lỗi rõ ràng nếu vậy.
     await this.db().query(`DROP DATABASE ${quoteIdentPg(name)}`);

@@ -72,6 +72,10 @@ export function registerIpc(): void {
     sessions.get(connectionId).renameTable(target, newName),
   );
 
+  ipcMain.handle(IpcChannels.databaseCreate, (_e, connectionId: string, name: string) =>
+    sessions.get(connectionId).createDatabase(name),
+  );
+
   ipcMain.handle(IpcChannels.databaseDrop, (_e, connectionId: string, name: string) =>
     sessions.get(connectionId).dropDatabase(name),
   );

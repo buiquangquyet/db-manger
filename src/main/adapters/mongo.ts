@@ -269,6 +269,11 @@ export class MongoAdapter implements DatabaseAdapter {
     await this.c().db(database).renameCollection(target.name, newName);
   }
 
+  async createDatabase(name: string): Promise<void> {
+    // MongoDB tạo database lười (khi có collection đầu tiên) — tạo collection giữ chỗ để db hiện ra.
+    await this.c().db(name).createCollection('_placeholder');
+  }
+
   async dropDatabase(name: string): Promise<void> {
     await this.c().db(name).dropDatabase();
   }

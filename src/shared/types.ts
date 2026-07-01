@@ -246,6 +246,8 @@ export interface DatabaseAdapter {
   truncateTable(target: DataTarget): Promise<void>;
   /** Đổi tên bảng/collection. */
   renameTable(target: DataTarget, newName: string): Promise<void>;
+  /** Tạo một database/schema mới. */
+  createDatabase(name: string): Promise<void>;
   /** Xóa một database/schema (Redis: FLUSHDB theo index). */
   dropDatabase(name: string): Promise<void>;
   /** Sinh câu lệnh tạo bảng (DDL) — dùng cho "copy cấu trúc". */
@@ -291,6 +293,7 @@ export const IpcChannels = {
   objectDrop: 'object:drop',
   objectTruncate: 'object:truncate',
   objectRename: 'object:rename',
+  databaseCreate: 'database:create',
   databaseDrop: 'database:drop',
   dataUpdate: 'data:update',
   dataInsert: 'data:insert',
@@ -324,6 +327,7 @@ export interface RendererApi {
   dropTable(connectionId: string, target: DataTarget): Promise<void>;
   truncateTable(connectionId: string, target: DataTarget): Promise<void>;
   renameTable(connectionId: string, target: DataTarget, newName: string): Promise<void>;
+  createDatabase(connectionId: string, name: string): Promise<void>;
   dropDatabase(connectionId: string, name: string): Promise<void>;
   updateCell(
     connectionId: string,
