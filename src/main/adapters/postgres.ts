@@ -2,6 +2,7 @@ import pg from 'pg';
 import type {
   AlterOperation,
   Capabilities,
+  ColumnSpec,
   ConnectionConfig,
   DataTarget,
   DatabaseAdapter,
@@ -24,6 +25,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     queryLabel: 'SQL',
     inlineEdit: true,
     alterStructure: true,
+    manageObjects: true,
   };
 
   private pool: pg.Pool | null = null;
@@ -276,6 +278,43 @@ export class PostgresAdapter implements DatabaseAdapter {
       [schema, table],
     );
     return res.rows.map((r: { column_name: string }) => r.column_name);
+  }
+
+  private qualify(target: DataTarget, name = target.name): string {
+    const schema = target.schema ?? 'public';
+    return `${quoteIdentPg(schema)}.${quoteIdentPg(name)}`;
+  }
+
+  /** Sinh mệnh đề định nghĩa cột cho CREATE TABLE. */
+  private colDef(c: ColumnSpec): string {
+    let def = `${quoteIdentPg(c.name)} ${c.dataType}`;
+    if (!c.nullable) def += ' NOT NULL';
+    if (c.default !== null && c.default !== '') def += ` DEFAULT ${c.default}`;
+    return def;
+  }
+
+  async createTable(target: DataTarget, columns: ColumnSpec[]): Promise<void> {
+    if (!columns.length) throw new Error('Cần ít nhất 1 cột để tạo bảng.');
+    const defs = columns.map((c) => this.colDef(c)).join(', ');
+    await this.db().query(`CREATE TABLE ${this.qualify(target)} (${defs})`);
+  }
+
+  async dropTable(target: DataTarget): Promise<void> {
+    await this.db().query(`DROP TABLE ${this.qualify(target)}`);
+  }
+
+  async truncateTable(target: DataTarget): Promise<void> {
+    await this.db().query(`TRUNCATE TABLE ${this.qualify(target)}`);
+  }
+
+  async renameTable(target: DataTarget, newName: string): Promise<void> {
+    // RENAME TO chỉ nhận tên mới không kèm schema.
+    await this.db().query(`ALTER TABLE ${this.qualify(target)} RENAME TO ${quoteIdentPg(newName)}`);
+  }
+
+  async dropDatabase(name: string): Promise<void> {
+    // Không thể xóa database đang kết nối; Postgres sẽ báo lỗi rõ ràng nếu vậy.
+    await this.db().query(`DROP DATABASE ${quoteIdentPg(name)}`);
   }
 
   /** Lấy tập cột khóa chính của bảng. */

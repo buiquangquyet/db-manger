@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IpcChannels } from '@shared/types';
 import type {
   AlterOperation,
+  ColumnSpec,
   ConnectionConfig,
   DataTarget,
   PageRequest,
@@ -28,6 +29,16 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.dataStructure, connectionId, target),
   alterTable: (connectionId: string, target: DataTarget, op: AlterOperation) =>
     ipcRenderer.invoke(IpcChannels.dataAlter, connectionId, target, op),
+  createTable: (connectionId: string, target: DataTarget, columns: ColumnSpec[]) =>
+    ipcRenderer.invoke(IpcChannels.objectCreate, connectionId, target, columns),
+  dropTable: (connectionId: string, target: DataTarget) =>
+    ipcRenderer.invoke(IpcChannels.objectDrop, connectionId, target),
+  truncateTable: (connectionId: string, target: DataTarget) =>
+    ipcRenderer.invoke(IpcChannels.objectTruncate, connectionId, target),
+  renameTable: (connectionId: string, target: DataTarget, newName: string) =>
+    ipcRenderer.invoke(IpcChannels.objectRename, connectionId, target, newName),
+  dropDatabase: (connectionId: string, name: string) =>
+    ipcRenderer.invoke(IpcChannels.databaseDrop, connectionId, name),
   updateCell: (
     connectionId: string,
     target: DataTarget,

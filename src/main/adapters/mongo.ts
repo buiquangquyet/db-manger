@@ -24,6 +24,8 @@ export class MongoAdapter implements DatabaseAdapter {
     inlineEdit: false,
     // MongoDB schemaless — không có ALTER TABLE.
     alterStructure: false,
+    // Cho phép tạo/xóa/đổi tên collection & xóa database.
+    manageObjects: true,
   };
 
   private client: MongoClient | null = null;
@@ -234,6 +236,35 @@ export class MongoAdapter implements DatabaseAdapter {
 
   async alterTable(): Promise<void> {
     throw new Error('MongoDB không có cấu trúc bảng cố định — không áp dụng ALTER TABLE.');
+  }
+
+  async createTable(target: DataTarget): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    // Collection schemaless: bỏ qua danh sách cột, chỉ tạo collection rỗng.
+    await this.c().db(database).createCollection(target.name);
+  }
+
+  async dropTable(target: DataTarget): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    await this.c().db(database).collection(target.name).drop();
+  }
+
+  async truncateTable(target: DataTarget): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    await this.c().db(database).collection(target.name).deleteMany({});
+  }
+
+  async renameTable(target: DataTarget, newName: string): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    await this.c().db(database).renameCollection(target.name, newName);
+  }
+
+  async dropDatabase(name: string): Promise<void> {
+    await this.c().db(name).dropDatabase();
   }
 
   async updateCell(): Promise<void> {

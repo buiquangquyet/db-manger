@@ -22,6 +22,7 @@ export class RedisAdapter implements DatabaseAdapter {
     queryLabel: 'Redis Command',
     inlineEdit: true,
     alterStructure: false,
+    manageObjects: false,
   };
 
   private client: Redis | null = null;
@@ -142,6 +143,28 @@ export class RedisAdapter implements DatabaseAdapter {
 
   async alterTable(): Promise<void> {
     throw new Error('Redis không có cấu trúc bảng — không áp dụng ALTER TABLE.');
+  }
+
+  async createTable(): Promise<void> {
+    throw new Error('Redis không có bảng — tạo key trực tiếp qua ô Redis Command.');
+  }
+
+  async dropTable(): Promise<void> {
+    throw new Error('Redis không có bảng — xóa key riêng lẻ hoặc FLUSHDB cả keyspace.');
+  }
+
+  async truncateTable(target: DataTarget): Promise<void> {
+    await this.r().select(Number(target.database ?? target.name ?? 0));
+    await this.r().flushdb();
+  }
+
+  async renameTable(): Promise<void> {
+    throw new Error('Redis không hỗ trợ đổi tên keyspace.');
+  }
+
+  async dropDatabase(name: string): Promise<void> {
+    await this.r().select(Number(name) || 0);
+    await this.r().flushdb();
   }
 
   /** Sửa inline: cột 'value' (chỉ key kiểu string) hoặc 'ttl'. */

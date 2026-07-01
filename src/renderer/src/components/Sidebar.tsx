@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Button, Dropdown, Empty, Tree, message } from 'antd';
+import { useMemo, useRef, useState } from 'react';
+import { Button, Dropdown, Empty, Input, Modal, Tree, message } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   DatabaseOutlined,
@@ -9,8 +9,12 @@ import {
   FolderOutlined,
   KeyOutlined,
 } from '@ant-design/icons';
-import type { DataTarget, StoredConnection, TreeNode } from '@shared/types';
+import type { DataTarget, DbKind, StoredConnection, TreeNode } from '@shared/types';
 import { ConnectionModal } from './ConnectionModal';
+import { CreateTableModal } from './CreateTableModal';
+
+/** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
+const canManage = (kind: DbKind): boolean => kind !== 'redis';
 
 interface Props {
   connections: StoredConnection[];
@@ -54,6 +58,23 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<StoredConnection | null>(null);
   const [treeData, setTreeData] = useState<Record<string, UiNode[]>>({});
+  // Ngữ cảnh tạo bảng (mở CreateTableModal) & node cha để refresh sau khi tạo.
+  const [createCtx, setCreateCtx] = useState<{
+    connectionId: string;
+    kind: DbKind;
+    database?: string;
+    schema?: string;
+    dbLabel: string;
+    parentKey: string;
+  } | null>(null);
+  // Ngữ cảnh đổi tên bảng.
+  const [renameCtx, setRenameCtx] = useState<{
+    connectionId: string;
+    target: DataTarget;
+    current: string;
+    parentKey?: string;
+  } | null>(null);
+  const renameValue = useRef('');
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -105,6 +126,106 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       ...prev,
       [ui.connectionId]: insertChildren(prev[ui.connectionId] ?? [], ui.key, uiChildren),
     }));
+  };
+
+  // Tải lại con của node theo key (sau khi thao tác cấu trúc).
+  const reloadChildren = async (connectionId: string, nodeKey: string) => {
+    const node = findNode(treeData[connectionId] ?? [], nodeKey);
+    if (!node?.raw) return;
+    const children = await window.api.getChildNodes(connectionId, node.raw);
+    setTreeData((prev) => ({
+      ...prev,
+      [connectionId]: insertChildren(prev[connectionId] ?? [], nodeKey, children.map((n) => toUi(n, connectionId))),
+    }));
+  };
+
+  const refreshParentOf = async (connectionId: string, childKey: string) => {
+    const parentKey = findParentKey(treeData[connectionId] ?? [], childKey);
+    if (parentKey) await reloadChildren(connectionId, parentKey);
+  };
+
+  const targetOf = (raw: TreeNode): DataTarget => ({
+    database: raw.meta?.database as string | undefined,
+    schema: raw.meta?.schema as string | undefined,
+    name: (raw.meta?.name as string) ?? raw.label,
+  });
+
+  const handleTruncate = (connectionId: string, ui: UiNode) => {
+    if (!ui.raw) return;
+    Modal.confirm({
+      title: `Xóa toàn bộ dữ liệu trong "${ui.raw.label}"?`,
+      content: 'Giữ nguyên cấu trúc, xóa hết dòng/dữ liệu. Không thể hoàn tác.',
+      okText: 'Xóa dữ liệu',
+      okType: 'danger',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await window.api.truncateTable(connectionId, targetOf(ui.raw!));
+          message.success('Đã xóa dữ liệu');
+        } catch (err) {
+          message.error(`Thất bại: ${(err as Error).message}`);
+        }
+      },
+    });
+  };
+
+  const handleDropTable = (connectionId: string, ui: UiNode) => {
+    if (!ui.raw) return;
+    Modal.confirm({
+      title: `Xóa "${ui.raw.label}"?`,
+      content: 'Xóa cả cấu trúc lẫn dữ liệu. Không thể hoàn tác.',
+      okText: 'Xóa',
+      okType: 'danger',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await window.api.dropTable(connectionId, targetOf(ui.raw!));
+          message.success('Đã xóa');
+          await refreshParentOf(connectionId, ui.key);
+        } catch (err) {
+          message.error(`Thất bại: ${(err as Error).message}`);
+        }
+      },
+    });
+  };
+
+  const handleDropDatabase = (connectionId: string, ui: UiNode) => {
+    if (!ui.raw) return;
+    const name = (ui.raw.meta?.database as string) ?? ui.raw.label;
+    Modal.confirm({
+      title: `Xóa database "${name}"?`,
+      content: 'Xóa toàn bộ bảng và dữ liệu bên trong. Không thể hoàn tác.',
+      okText: 'Xóa database',
+      okType: 'danger',
+      cancelText: 'Hủy',
+      onOk: async () => {
+        try {
+          await window.api.dropDatabase(connectionId, name);
+          message.success('Đã xóa database');
+          const conn = connections.find((c) => c.id === connectionId);
+          if (conn) await loadRoot(conn);
+        } catch (err) {
+          message.error(`Thất bại: ${(err as Error).message}`);
+        }
+      },
+    });
+  };
+
+  const submitRename = async () => {
+    if (!renameCtx) return;
+    const newName = renameValue.current.trim();
+    if (!newName || newName === renameCtx.current) {
+      setRenameCtx(null);
+      return;
+    }
+    try {
+      await window.api.renameTable(renameCtx.connectionId, renameCtx.target, newName);
+      message.success('Đã đổi tên');
+      if (renameCtx.parentKey) await reloadChildren(renameCtx.connectionId, renameCtx.parentKey);
+    } catch (err) {
+      message.error(`Đổi tên thất bại: ${(err as Error).message}`);
+    }
+    setRenameCtx(null);
   };
 
   const onSelect = (_keys: React.Key[], info: { node: DataNode }) => {
@@ -190,6 +311,78 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                   </Dropdown>
                 );
               }
+              const raw = ui.raw;
+              const conn = connections.find((c) => c.id === ui.connectionId);
+              if (!raw || !conn || !canManage(conn.kind)) return <span>{ui.title}</span>;
+
+              // Menu cho node database/schema.
+              if (raw.type === 'database' || raw.type === 'schema') {
+                const items = [
+                  { key: 'create', label: 'Tạo bảng' },
+                  { key: 'refresh', label: 'Làm mới' },
+                  ...(raw.type === 'database'
+                    ? [{ key: 'dropDb', label: 'Xóa database', danger: true }]
+                    : []),
+                ];
+                return (
+                  <Dropdown
+                    trigger={['contextMenu']}
+                    menu={{
+                      items,
+                      onClick: ({ key }) => {
+                        if (key === 'create') {
+                          setCreateCtx({
+                            connectionId: conn.id,
+                            kind: conn.kind,
+                            database: raw.meta?.database as string | undefined,
+                            schema: raw.meta?.schema as string | undefined,
+                            dbLabel: raw.label,
+                            parentKey: ui.key,
+                          });
+                        } else if (key === 'refresh') {
+                          void reloadChildren(conn.id, ui.key);
+                        } else if (key === 'dropDb') {
+                          handleDropDatabase(conn.id, ui);
+                        }
+                      },
+                    }}
+                  >
+                    <span>{ui.title}</span>
+                  </Dropdown>
+                );
+              }
+
+              // Menu cho node bảng/view/collection.
+              if (['table', 'view', 'collection'].includes(raw.type)) {
+                return (
+                  <Dropdown
+                    trigger={['contextMenu']}
+                    menu={{
+                      items: [
+                        { key: 'truncate', label: 'Xóa dữ liệu (truncate)' },
+                        { key: 'rename', label: 'Đổi tên' },
+                        { key: 'drop', label: 'Xóa', danger: true },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'truncate') handleTruncate(conn.id, ui);
+                        else if (key === 'drop') handleDropTable(conn.id, ui);
+                        else if (key === 'rename') {
+                          renameValue.current = raw.label;
+                          setRenameCtx({
+                            connectionId: conn.id,
+                            target: targetOf(raw),
+                            current: raw.label,
+                            parentKey: findParentKey(treeData[conn.id] ?? [], ui.key),
+                          });
+                        }
+                      },
+                    }}
+                  >
+                    <span>{ui.title}</span>
+                  </Dropdown>
+                );
+              }
+
               return <span>{ui.title}</span>;
             }}
           />
@@ -202,8 +395,62 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
         onClose={() => setModalOpen(false)}
         onSaved={onConnectionsChanged}
       />
+
+      {createCtx && (
+        <CreateTableModal
+          open
+          connectionId={createCtx.connectionId}
+          kind={createCtx.kind}
+          database={createCtx.database}
+          schema={createCtx.schema}
+          dbLabel={createCtx.dbLabel}
+          onClose={() => setCreateCtx(null)}
+          onCreated={() => void reloadChildren(createCtx.connectionId, createCtx.parentKey)}
+        />
+      )}
+
+      <Modal
+        open={!!renameCtx}
+        title={`Đổi tên "${renameCtx?.current ?? ''}"`}
+        okText="Đổi tên"
+        cancelText="Hủy"
+        onCancel={() => setRenameCtx(null)}
+        onOk={submitRename}
+        destroyOnClose
+      >
+        <Input
+          placeholder="Tên mới"
+          defaultValue={renameCtx?.current}
+          onChange={(e) => (renameValue.current = e.target.value)}
+          onPressEnter={submitRename}
+        />
+      </Modal>
     </div>
   );
+}
+
+/** Tìm node theo key (đệ quy). */
+function findNode(nodes: UiNode[], key: string): UiNode | undefined {
+  for (const n of nodes) {
+    if (n.key === key) return n;
+    if (n.children) {
+      const found = findNode(n.children, key);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/** Tìm key của node cha chứa childKey (đệ quy). */
+function findParentKey(nodes: UiNode[], childKey: string, parentKey?: string): string | undefined {
+  for (const n of nodes) {
+    if (n.key === childKey) return parentKey;
+    if (n.children) {
+      const found = findParentKey(n.children, childKey, n.key);
+      if (found) return found;
+    }
+  }
+  return undefined;
 }
 
 /** Chèn danh sách con vào node có key cho trước (đệ quy). */

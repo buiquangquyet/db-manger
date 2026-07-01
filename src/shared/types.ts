@@ -41,6 +41,8 @@ export interface Capabilities {
   inlineEdit: boolean;
   /** Cho phép sửa cấu trúc bảng (ALTER TABLE) hay không. */
   alterStructure: boolean;
+  /** Cho phép tạo/xóa/đổi tên bảng & xóa database. */
+  manageObjects: boolean;
 }
 
 /** Một node trong cây sidebar (database → bảng/collection/key…). */
@@ -195,6 +197,17 @@ export interface DatabaseAdapter {
   /** Thực hiện một thay đổi cấu trúc bảng (ALTER TABLE). */
   alterTable(target: DataTarget, op: AlterOperation): Promise<void>;
 
+  /** Tạo bảng/collection mới với danh sách cột. */
+  createTable(target: DataTarget, columns: ColumnSpec[]): Promise<void>;
+  /** Xóa bảng/collection. */
+  dropTable(target: DataTarget): Promise<void>;
+  /** Xóa toàn bộ dữ liệu nhưng giữ cấu trúc (TRUNCATE / deleteMany / FLUSHDB). */
+  truncateTable(target: DataTarget): Promise<void>;
+  /** Đổi tên bảng/collection. */
+  renameTable(target: DataTarget, newName: string): Promise<void>;
+  /** Xóa một database/schema (Redis: FLUSHDB theo index). */
+  dropDatabase(name: string): Promise<void>;
+
   /** Chạy query/command tự do (SQL, mongo shell, redis command). */
   executeRaw(query: string, database?: string): Promise<QueryResult>;
 
@@ -231,6 +244,11 @@ export const IpcChannels = {
   dataRead: 'data:read',
   dataStructure: 'data:structure',
   dataAlter: 'data:alter',
+  objectCreate: 'object:create',
+  objectDrop: 'object:drop',
+  objectTruncate: 'object:truncate',
+  objectRename: 'object:rename',
+  databaseDrop: 'database:drop',
   dataUpdate: 'data:update',
   dataInsert: 'data:insert',
   dataDelete: 'data:delete',
@@ -255,6 +273,11 @@ export interface RendererApi {
   readRows(connectionId: string, target: DataTarget, page: PageRequest): Promise<RowSet>;
   getStructure(connectionId: string, target: DataTarget): Promise<TableStructure>;
   alterTable(connectionId: string, target: DataTarget, op: AlterOperation): Promise<void>;
+  createTable(connectionId: string, target: DataTarget, columns: ColumnSpec[]): Promise<void>;
+  dropTable(connectionId: string, target: DataTarget): Promise<void>;
+  truncateTable(connectionId: string, target: DataTarget): Promise<void>;
+  renameTable(connectionId: string, target: DataTarget, newName: string): Promise<void>;
+  dropDatabase(connectionId: string, name: string): Promise<void>;
   updateCell(
     connectionId: string,
     target: DataTarget,

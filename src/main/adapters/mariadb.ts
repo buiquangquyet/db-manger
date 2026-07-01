@@ -25,6 +25,7 @@ export class MariaDbAdapter implements DatabaseAdapter {
     queryLabel: 'SQL',
     inlineEdit: true,
     alterStructure: true,
+    manageObjects: true,
   };
 
   private pool: mysql.Pool | null = null;
@@ -232,6 +233,33 @@ export class MariaDbAdapter implements DatabaseAdapter {
         break;
     }
     await this.db().query(sql);
+  }
+
+  private qualify(target: DataTarget, name = target.name): string {
+    const db = target.database ?? this.config.database;
+    return db ? `${quoteIdentMysql(db)}.${quoteIdentMysql(name)}` : quoteIdentMysql(name);
+  }
+
+  async createTable(target: DataTarget, columns: ColumnSpec[]): Promise<void> {
+    if (!columns.length) throw new Error('Cần ít nhất 1 cột để tạo bảng.');
+    const defs = columns.map((c) => this.colDef(c)).join(', ');
+    await this.db().query(`CREATE TABLE ${this.qualify(target)} (${defs})`);
+  }
+
+  async dropTable(target: DataTarget): Promise<void> {
+    await this.db().query(`DROP TABLE ${this.qualify(target)}`);
+  }
+
+  async truncateTable(target: DataTarget): Promise<void> {
+    await this.db().query(`TRUNCATE TABLE ${this.qualify(target)}`);
+  }
+
+  async renameTable(target: DataTarget, newName: string): Promise<void> {
+    await this.db().query(`RENAME TABLE ${this.qualify(target)} TO ${this.qualify(target, newName)}`);
+  }
+
+  async dropDatabase(name: string): Promise<void> {
+    await this.db().query(`DROP DATABASE ${quoteIdentMysql(name)}`);
   }
 
   /** Sinh mệnh đề định nghĩa cột: `name` type NULL/NOT NULL [DEFAULT ...]. */

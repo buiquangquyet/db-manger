@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import type { AlterOperation, ConnectionConfig, DataTarget, PageRequest, TreeNode } from '@shared/types';
+import type { AlterOperation, ColumnSpec, ConnectionConfig, DataTarget, PageRequest, TreeNode } from '@shared/types';
 import { IpcChannels } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
@@ -60,6 +60,26 @@ export function registerIpc(): void {
 
   ipcMain.handle(IpcChannels.dataAlter, (_e, connectionId: string, target: DataTarget, op: AlterOperation) =>
     sessions.get(connectionId).alterTable(target, op),
+  );
+
+  ipcMain.handle(IpcChannels.objectCreate, (_e, connectionId: string, target: DataTarget, columns: ColumnSpec[]) =>
+    sessions.get(connectionId).createTable(target, columns),
+  );
+
+  ipcMain.handle(IpcChannels.objectDrop, (_e, connectionId: string, target: DataTarget) =>
+    sessions.get(connectionId).dropTable(target),
+  );
+
+  ipcMain.handle(IpcChannels.objectTruncate, (_e, connectionId: string, target: DataTarget) =>
+    sessions.get(connectionId).truncateTable(target),
+  );
+
+  ipcMain.handle(IpcChannels.objectRename, (_e, connectionId: string, target: DataTarget, newName: string) =>
+    sessions.get(connectionId).renameTable(target, newName),
+  );
+
+  ipcMain.handle(IpcChannels.databaseDrop, (_e, connectionId: string, name: string) =>
+    sessions.get(connectionId).dropDatabase(name),
   );
 
   ipcMain.handle(
