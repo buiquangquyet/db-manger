@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Dropdown, Empty, Spin, Table, Tag, Typography, message } from 'antd';
+import { Button, Empty, Menu, Spin, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DatabaseOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { DataTarget, DbKind, TableSummary } from '@shared/types';
@@ -165,25 +165,43 @@ export function DatabaseOverview({ connectionId, kind, database, schema, label, 
         </Spin>
       </div>
 
-      {/* Menu chuột phải: neo vào 1 điểm ẩn tại vị trí con trỏ. */}
-      <Dropdown
-        open={!!ctx}
-        trigger={[]}
-        onOpenChange={(o) => {
-          if (!o) setCtx(null);
-        }}
-        menu={
-          ctx
-            ? buildTableMenu(
-                { connectionId, target: { database, schema, name: ctx.row.name }, label: ctx.row.name },
-                kind,
-                reload,
-              )
-            : { items: [] }
-        }
-      >
-        <div style={{ position: 'fixed', left: ctx?.x ?? -9999, top: ctx?.y ?? -9999, width: 0, height: 0 }} />
-      </Dropdown>
+      {/* Menu chuột phải: render Menu thủ công tại vị trí con trỏ + lớp phủ bắt click ngoài. */}
+      {ctx &&
+        (() => {
+          const menu = buildTableMenu(
+            { connectionId, target: { database, schema, name: ctx.row.name }, label: ctx.row.name },
+            kind,
+            reload,
+          );
+          return (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
+                onClick={() => setCtx(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setCtx(null);
+                }}
+              />
+              <Menu
+                items={menu.items}
+                onClick={(info) => {
+                  menu.onClick?.(info);
+                  setCtx(null);
+                }}
+                style={{
+                  position: 'fixed',
+                  left: ctx.x,
+                  top: ctx.y,
+                  zIndex: 1001,
+                  minWidth: 200,
+                  borderRadius: 6,
+                  boxShadow: '0 3px 10px rgba(0,0,0,0.18)',
+                }}
+              />
+            </>
+          );
+        })()}
     </div>
   );
 }
