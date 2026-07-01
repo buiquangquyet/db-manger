@@ -44,7 +44,13 @@ export class MongoAdapter implements DatabaseAdapter {
 
   async connect(): Promise<void> {
     if (this.client) return;
-    this.client = new MongoClient(this.buildUri(), { serverSelectionTimeoutMS: 5000 });
+    const tls = this.config.options?.ssl;
+    this.client = new MongoClient(this.buildUri(), {
+      serverSelectionTimeoutMS: 5000,
+      ...(tls
+        ? { tls: true, tlsAllowInvalidCertificates: this.config.options?.sslRejectUnauthorized === false }
+        : {}),
+    });
     await this.client.connect();
   }
 

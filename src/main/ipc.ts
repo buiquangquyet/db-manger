@@ -4,7 +4,6 @@ import { IpcChannels } from '@shared/types';
 import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
-import { createAdapter } from './adapters';
 import { exportTable, importTable, saveTextFile } from './io';
 
 export function registerIpc(): void {
@@ -22,14 +21,7 @@ export function registerIpc(): void {
     store.delete(id);
   });
 
-  ipcMain.handle(IpcChannels.connectionsTest, async (_e, config: ConnectionConfig) => {
-    const adapter = createAdapter(config);
-    try {
-      return await adapter.testConnection();
-    } finally {
-      await adapter.disconnect();
-    }
-  });
+  ipcMain.handle(IpcChannels.connectionsTest, (_e, config: ConnectionConfig) => sessions.test(config));
 
   ipcMain.handle(IpcChannels.sessionOpen, async (_e, connectionId: string) => {
     const config = store.hydrate(connectionId);

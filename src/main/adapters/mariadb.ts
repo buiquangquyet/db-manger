@@ -45,6 +45,9 @@ export class MariaDbAdapter implements DatabaseAdapter {
       supportBigNumbers: true,
       bigNumberStrings: true,
       dateStrings: true,
+      ssl: this.config.options?.ssl
+        ? { rejectUnauthorized: this.config.options?.sslRejectUnauthorized !== false }
+        : undefined,
     });
     // ép mở 1 kết nối để phát hiện lỗi sớm.
     const conn = await this.pool.getConnection();

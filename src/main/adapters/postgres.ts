@@ -41,6 +41,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       password: this.config.password,
       database: this.config.database || 'postgres',
       max: 5,
+      ssl: this.config.options?.ssl
+        ? { rejectUnauthorized: this.config.options?.sslRejectUnauthorized !== false }
+        : undefined,
     });
     const client = await this.pool.connect();
     client.release();

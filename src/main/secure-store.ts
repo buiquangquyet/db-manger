@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ConnectionConfig, StoredConnection } from '@shared/types';
+import type { ConnectionConfig, SshTunnelConfig, StoredConnection } from '@shared/types';
 
 /**
  * Lưu danh sách kết nối vào userData/connections.json.
@@ -41,10 +41,22 @@ export class SecureStore {
     return this.data.connections;
   }
 
-  /** Lưu/cập nhật kết nối; tách password ra mã hóa riêng. */
+  /** Lưu/cập nhật kết nối; tách password (và bí mật SSH) ra mã hóa riêng. */
   save(config: ConnectionConfig): StoredConnection {
     const { password, ...rest } = config;
-    const stored: StoredConnection = rest;
+    let stored: StoredConnection = rest;
+
+    // Tách bí mật SSH (password/privateKey/passphrase) khỏi options lưu plaintext.
+    const ssh = rest.options?.ssh;
+    if (ssh) {
+      const { password: sshPw, privateKey, passphrase, ...sshPublic } = ssh;
+      stored = { ...rest, options: { ...rest.options, ssh: sshPublic } };
+      if (sshPw || privateKey || passphrase) {
+        this.data.secrets[`${config.id}:ssh`] = this.encrypt(
+          JSON.stringify({ password: sshPw, privateKey, passphrase }),
+        );
+      }
+    }
 
     const idx = this.data.connections.findIndex((c) => c.id === config.id);
     if (idx >= 0) this.data.connections[idx] = stored;
@@ -60,15 +72,35 @@ export class SecureStore {
   delete(id: string): void {
     this.data.connections = this.data.connections.filter((c) => c.id !== id);
     delete this.data.secrets[id];
+    delete this.data.secrets[`${id}:ssh`];
     this.persist();
   }
 
-  /** Ghép password đã giải mã vào config để mở kết nối. */
+  /** Ghép password & bí mật SSH đã giải mã vào config để mở kết nối. */
   hydrate(id: string): ConnectionConfig | null {
     const stored = this.data.connections.find((c) => c.id === id);
     if (!stored) return null;
     const enc = this.data.secrets[id];
-    return { ...stored, password: enc ? this.decrypt(enc) : undefined };
+    const config: ConnectionConfig = { ...stored, password: enc ? this.decrypt(enc) : undefined };
+
+    const sshEnc = this.data.secrets[`${id}:ssh`];
+    if (sshEnc && config.options?.ssh) {
+      try {
+        const sec = JSON.parse(this.decrypt(sshEnc)) as Partial<SshTunnelConfig>;
+        config.options = {
+          ...config.options,
+          ssh: {
+            ...config.options.ssh,
+            ...(sec.password ? { password: sec.password } : {}),
+            ...(sec.privateKey ? { privateKey: sec.privateKey } : {}),
+            ...(sec.passphrase ? { passphrase: sec.passphrase } : {}),
+          },
+        };
+      } catch {
+        // bí mật hỏng -> bỏ qua, để driver báo lỗi xác thực.
+      }
+    }
+    return config;
   }
 
   private encrypt(plain: string): string {

@@ -5,6 +5,31 @@
 
 export type DbKind = 'mariadb' | 'postgres' | 'mongodb' | 'redis';
 
+/** Cấu hình SSH tunnel: forward local -> DB host:port qua một SSH server (bastion). */
+export interface SshTunnelConfig {
+  host: string;
+  port: number;
+  user: string;
+  /** Xác thực bằng mật khẩu (bí mật — mã hóa khi lưu). */
+  password?: string;
+  /** Hoặc bằng private key dạng PEM (bí mật — mã hóa khi lưu). */
+  privateKey?: string;
+  /** Passphrase của private key nếu có (bí mật). */
+  passphrase?: string;
+}
+
+/** Tùy chọn nâng cao theo từng kết nối. */
+export interface ConnectionOptions {
+  /** Bật TLS/SSL tới DB. */
+  ssl?: boolean;
+  /** false = chấp nhận chứng chỉ tự ký / không khớp tên (mặc định true). */
+  sslRejectUnauthorized?: boolean;
+  /** Nếu đặt, kết nối qua SSH tunnel. */
+  ssh?: SshTunnelConfig;
+  /** Chuỗi kết nối tùy chỉnh (vd Mongo URI). */
+  connectionString?: string;
+}
+
 /** Cấu hình kết nối do người dùng nhập. Mật khẩu được lưu tách biệt & mã hóa. */
 export interface ConnectionConfig {
   id: string;
@@ -18,8 +43,8 @@ export interface ConnectionConfig {
   password?: string;
   /** DB/schema mặc định (SQL), database name (Mongo), hoặc db index (Redis dạng chuỗi). */
   database?: string;
-  /** Tùy chọn nâng cao theo từng loại (ssl, connectionString, v.v.). */
-  options?: Record<string, unknown>;
+  /** Tùy chọn nâng cao theo từng loại (ssl, ssh tunnel, connectionString, v.v.). */
+  options?: ConnectionOptions;
   /** Nhóm để tổ chức sidebar, ví dụ "Production", "Local". */
   group?: string;
 }

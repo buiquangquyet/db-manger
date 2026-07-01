@@ -38,6 +38,9 @@ export class RedisAdapter implements DatabaseAdapter {
       password: this.config.password || undefined,
       lazyConnect: true,
       maxRetriesPerRequest: 1,
+      tls: this.config.options?.ssl
+        ? { rejectUnauthorized: this.config.options?.sslRejectUnauthorized !== false }
+        : undefined,
     });
     await this.client.connect();
   }
