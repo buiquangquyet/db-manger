@@ -161,6 +161,22 @@ export interface QueryResult {
   durationMs: number;
 }
 
+/** Định dạng import/export. */
+export type IoFormat = 'csv' | 'json' | 'sql';
+
+/** Kết quả export: đường dẫn file đã ghi + số dòng, hoặc cancelled nếu người dùng hủy. */
+export interface ExportResult {
+  path?: string;
+  count: number;
+  cancelled?: boolean;
+}
+
+/** Kết quả import: số dòng đã nạp, hoặc cancelled. */
+export interface ImportResult {
+  count: number;
+  cancelled?: boolean;
+}
+
 export interface TestConnectionResult {
   ok: boolean;
   /** Thông tin server nếu kết nối được (vd version). */
@@ -253,6 +269,9 @@ export const IpcChannels = {
   dataInsert: 'data:insert',
   dataDelete: 'data:delete',
   queryExecute: 'query:execute',
+  ioExport: 'io:export',
+  ioImport: 'io:import',
+  ioSaveText: 'io:saveText',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -288,4 +307,10 @@ export interface RendererApi {
   insertRow(connectionId: string, target: DataTarget, values: Record<string, unknown>): Promise<void>;
   deleteRow(connectionId: string, target: DataTarget, rowKey: Record<string, unknown>): Promise<void>;
   executeQuery(connectionId: string, query: string, database?: string): Promise<QueryResult>;
+  /** Xuất toàn bộ dữ liệu một bảng ra file (mở hộp thoại lưu). */
+  exportTable(connectionId: string, target: DataTarget, format: IoFormat): Promise<ExportResult>;
+  /** Nhập dữ liệu vào một bảng từ file CSV/JSON, hoặc chạy file .sql. */
+  importTable(connectionId: string, target: DataTarget, format: IoFormat): Promise<ImportResult>;
+  /** Lưu nội dung văn bản tùy ý ra file (dùng cho export kết quả query). */
+  saveTextFile(defaultName: string, content: string): Promise<{ path?: string; cancelled?: boolean }>;
 }

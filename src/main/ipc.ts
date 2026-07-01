@@ -1,9 +1,11 @@
 import { ipcMain } from 'electron';
 import type { AlterOperation, ColumnSpec, ConnectionConfig, DataTarget, PageRequest, TreeNode } from '@shared/types';
 import { IpcChannels } from '@shared/types';
+import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
 import { createAdapter } from './adapters';
+import { exportTable, importTable, saveTextFile } from './io';
 
 export function registerIpc(): void {
   const store = new SecureStore();
@@ -104,6 +106,18 @@ export function registerIpc(): void {
     IpcChannels.queryExecute,
     (_e, connectionId: string, query: string, database?: string) =>
       sessions.get(connectionId).executeRaw(query, database),
+  );
+
+  ipcMain.handle(IpcChannels.ioExport, (_e, connectionId: string, target: DataTarget, format: IoFormat) =>
+    exportTable(sessions, connectionId, target, format),
+  );
+
+  ipcMain.handle(IpcChannels.ioImport, (_e, connectionId: string, target: DataTarget, format: IoFormat) =>
+    importTable(sessions, connectionId, target, format),
+  );
+
+  ipcMain.handle(IpcChannels.ioSaveText, (_e, defaultName: string, content: string) =>
+    saveTextFile(defaultName, content),
   );
 
   return;

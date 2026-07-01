@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { CellValueChangedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
-import { Button, Input, Modal, Pagination, Space, Spin, message } from 'antd';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Input, Modal, Pagination, Space, Spin, message } from 'antd';
+import { DeleteOutlined, DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
-import type { DataTarget, RowSet } from '@shared/types';
+import type { DataTarget, IoFormat, RowSet } from '@shared/types';
 import { AddRowModal } from './AddRowModal';
 
 const PAGE_SIZE = 100;
@@ -125,6 +125,27 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
     [connectionId, target, buildRowKey],
   );
 
+  const handleExport = async (format: IoFormat) => {
+    try {
+      const res = await window.api.exportTable(connectionId, target, format);
+      if (res.cancelled) return;
+      message.success(`Đã xuất ${res.count} dòng → ${res.path}`);
+    } catch (err) {
+      message.error(`Xuất thất bại: ${(err as Error).message}`);
+    }
+  };
+
+  const handleImport = async (format: IoFormat) => {
+    try {
+      const res = await window.api.importTable(connectionId, target, format);
+      if (res.cancelled) return;
+      message.success(format === 'sql' ? 'Đã chạy file SQL' : `Đã nhập ${res.count} dòng`);
+      await load(page);
+    } catch (err) {
+      message.error(`Nhập thất bại: ${(err as Error).message}`);
+    }
+  };
+
   const handleInsert = async (values: Record<string, unknown>) => {
     try {
       await window.api.insertRow(connectionId, target, values);
@@ -187,6 +208,34 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
           >
             Xóa dòng{selectedCount > 0 ? ` (${selectedCount})` : ''}
           </Button>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'csv', label: 'CSV' },
+                { key: 'json', label: 'JSON' },
+                { key: 'sql', label: 'SQL (INSERT)' },
+              ],
+              onClick: ({ key }) => void handleExport(key as IoFormat),
+            }}
+          >
+            <Button size="small" icon={<DownloadOutlined />}>
+              Xuất
+            </Button>
+          </Dropdown>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'csv', label: 'CSV' },
+                { key: 'json', label: 'JSON' },
+                { key: 'sql', label: 'SQL (chạy file)' },
+              ],
+              onClick: ({ key }) => void handleImport(key as IoFormat),
+            }}
+          >
+            <Button size="small" icon={<UploadOutlined />}>
+              Nhập
+            </Button>
+          </Dropdown>
         </Space>
         <Input.Search
           size="small"

@@ -1,10 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
-import { Button, Space, message } from 'antd';
-import { CaretRightOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Space, message } from 'antd';
+import { CaretRightOutlined, DownloadOutlined } from '@ant-design/icons';
 import { monaco } from '../monaco-setup';
-import type { QueryResult } from '@shared/types';
+import type { QueryResult, RowSet } from '@shared/types';
+
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+
+/** Bọc trường CSV nếu chứa dấu phẩy/nháy/xuống dòng. */
+function csvField(v: unknown): string {
+  const s = cellText(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function rowSetToCsv(rs: RowSet): string {
+  const names = rs.columns.map((c) => c.name);
+  const header = names.map(csvField).join(',');
+  return [header, ...rs.rows.map((r) => names.map((n) => csvField(r[n])).join(','))].join('\r\n');
+}
 
 interface Props {
   connectionId: string;
@@ -48,6 +65,18 @@ export function QueryPanel({ connectionId, language, placeholder }: Props) {
     }
   };
 
+  const exportResult = async (format: 'csv' | 'json') => {
+    const rs = result?.rowSet;
+    if (!rs) return;
+    const content = format === 'csv' ? rowSetToCsv(rs) : JSON.stringify(rs.rows, null, 2);
+    try {
+      const res = await window.api.saveTextFile(`query-result.${format}`, content);
+      if (!res.cancelled) message.success(`Đã lưu → ${res.path}`);
+    } catch (err) {
+      message.error(`Lưu thất bại: ${(err as Error).message}`);
+    }
+  };
+
   const columnDefs: ColDef[] =
     result?.rowSet?.columns.map((c) => ({
       field: c.name,
@@ -69,6 +98,21 @@ export function QueryPanel({ connectionId, language, placeholder }: Props) {
           <Button type="primary" icon={<CaretRightOutlined />} loading={running} onClick={run}>
             Chạy
           </Button>
+          {result?.rowSet && (
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'csv', label: 'CSV' },
+                  { key: 'json', label: 'JSON' },
+                ],
+                onClick: ({ key }) => void exportResult(key as 'csv' | 'json'),
+              }}
+            >
+              <Button size="small" icon={<DownloadOutlined />}>
+                Xuất kết quả
+              </Button>
+            </Dropdown>
+          )}
           {result && <span style={{ color: '#888' }}>{result.durationMs.toFixed(1)} ms</span>}
         </Space>
       </div>

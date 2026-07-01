@@ -5,6 +5,7 @@ import type {
   ColumnSpec,
   ConnectionConfig,
   DataTarget,
+  IoFormat,
   PageRequest,
   RendererApi,
   TreeNode,
@@ -52,6 +53,12 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.dataDelete, connectionId, target, rowKey),
   executeQuery: (connectionId: string, query: string, database?: string) =>
     ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, database),
+  exportTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
+    ipcRenderer.invoke(IpcChannels.ioExport, connectionId, target, format),
+  importTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
+    ipcRenderer.invoke(IpcChannels.ioImport, connectionId, target, format),
+  saveTextFile: (defaultName: string, content: string) =>
+    ipcRenderer.invoke(IpcChannels.ioSaveText, defaultName, content),
 };
 
 contextBridge.exposeInMainWorld('api', api);
