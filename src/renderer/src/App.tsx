@@ -140,6 +140,7 @@ export default function App() {
         ) : dbSelection && !target ? (
           <DatabaseOverview
             connectionId={dbSelection.connectionId}
+            kind={session.connection.kind}
             database={dbSelection.database}
             schema={dbSelection.schema}
             label={dbSelection.label}

@@ -273,6 +273,10 @@ export class MongoAdapter implements DatabaseAdapter {
     await this.c().db(name).dropDatabase();
   }
 
+  async getCreateStatement(target: DataTarget): Promise<string> {
+    return `// MongoDB collection "${target.name}" (schemaless)\ndb.createCollection(${JSON.stringify(target.name)});`;
+  }
+
   async updateCell(): Promise<void> {
     throw new Error('Sửa inline cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }

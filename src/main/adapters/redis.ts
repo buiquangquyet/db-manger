@@ -170,6 +170,10 @@ export class RedisAdapter implements DatabaseAdapter {
     await this.r().flushdb();
   }
 
+  async getCreateStatement(): Promise<string> {
+    throw new Error('Redis không có bảng — không có DDL để copy.');
+  }
+
   /** Sửa inline: cột 'value' (chỉ key kiểu string) hoặc 'ttl'. */
   async updateCell(
     target: DataTarget,

@@ -320,6 +320,28 @@ export class PostgresAdapter implements DatabaseAdapter {
     await this.db().query(`DROP DATABASE ${quoteIdentPg(name)}`);
   }
 
+  async getCreateStatement(target: DataTarget): Promise<string> {
+    // Postgres không có SHOW CREATE — dựng DDL từ cấu trúc (cột + PK + index).
+    const s = await this.getStructure(target);
+    const lines = s.columns.map((c) => {
+      let l = `  ${quoteIdentPg(c.name)} ${c.dataType}`;
+      if (!c.nullable) l += ' NOT NULL';
+      if (c.default) l += ` DEFAULT ${c.default}`;
+      return l;
+    });
+    const pks = s.columns.filter((c) => c.isPrimaryKey).map((c) => quoteIdentPg(c.name));
+    if (pks.length) lines.push(`  PRIMARY KEY (${pks.join(', ')})`);
+    let sql = `CREATE TABLE ${this.qualify(target)} (\n${lines.join(',\n')}\n);`;
+    for (const ix of s.indexes) {
+      // Bỏ qua index của khóa chính (đã nằm trong PRIMARY KEY).
+      if (pks.length && ix.name.endsWith('_pkey')) continue;
+      sql += `\nCREATE ${ix.unique ? 'UNIQUE ' : ''}INDEX ${quoteIdentPg(ix.name)} ON ${this.qualify(
+        target,
+      )} (${ix.columns.map(quoteIdentPg).join(', ')});`;
+    }
+    return sql;
+  }
+
   /** Lấy tập cột khóa chính của bảng. */
   private async primaryKeys(schema: string, table: string): Promise<Set<string>> {
     const res = await this.db().query(

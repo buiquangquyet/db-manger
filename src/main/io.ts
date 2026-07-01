@@ -1,4 +1,4 @@
-import { dialog } from 'electron';
+import { clipboard, dialog } from 'electron';
 import { readFile, writeFile } from 'node:fs/promises';
 import type { DataTarget, ExportResult, ImportResult, IoFormat, RowSet } from '@shared/types';
 import type { SessionManager } from './session-manager';
@@ -144,6 +144,23 @@ export async function importTable(
     count++;
   }
   return { count };
+}
+
+/** Dựng SQL của bảng (DDL, kèm INSERT nếu withData) và copy vào clipboard hệ thống. */
+export async function copyTableSql(
+  sessions: SessionManager,
+  connectionId: string,
+  target: DataTarget,
+  withData: boolean,
+): Promise<{ chars: number }> {
+  const adapter = sessions.get(connectionId);
+  let sql = await adapter.getCreateStatement(target);
+  if (withData) {
+    const rs = await readAll(sessions, connectionId, target);
+    if (rs.rows.length) sql += `\n\n${toSql(target, rs)}`;
+  }
+  clipboard.writeText(sql);
+  return { chars: sql.length };
 }
 
 export async function saveTextFile(

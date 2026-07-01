@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
-import { Button, Dropdown, Empty, Input, Modal, Tree, message } from 'antd';
+import { useMemo, useState } from 'react';
+import { Button, Dropdown, Empty, Modal, Tree, message } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   DatabaseOutlined,
@@ -12,6 +12,7 @@ import {
 import type { DataTarget, DbKind, StoredConnection, TreeNode } from '@shared/types';
 import { ConnectionModal } from './ConnectionModal';
 import { CreateTableModal } from './CreateTableModal';
+import { buildTableMenu } from '../lib/tableActions';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
 const canManage = (kind: DbKind): boolean => kind !== 'redis';
@@ -67,14 +68,6 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     dbLabel: string;
     parentKey: string;
   } | null>(null);
-  // Ngữ cảnh đổi tên bảng.
-  const [renameCtx, setRenameCtx] = useState<{
-    connectionId: string;
-    target: DataTarget;
-    current: string;
-    parentKey?: string;
-  } | null>(null);
-  const renameValue = useRef('');
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -150,45 +143,6 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     name: (raw.meta?.name as string) ?? raw.label,
   });
 
-  const handleTruncate = (connectionId: string, ui: UiNode) => {
-    if (!ui.raw) return;
-    Modal.confirm({
-      title: `Xóa toàn bộ dữ liệu trong "${ui.raw.label}"?`,
-      content: 'Giữ nguyên cấu trúc, xóa hết dòng/dữ liệu. Không thể hoàn tác.',
-      okText: 'Xóa dữ liệu',
-      okType: 'danger',
-      cancelText: 'Hủy',
-      onOk: async () => {
-        try {
-          await window.api.truncateTable(connectionId, targetOf(ui.raw!));
-          message.success('Đã xóa dữ liệu');
-        } catch (err) {
-          message.error(`Thất bại: ${(err as Error).message}`);
-        }
-      },
-    });
-  };
-
-  const handleDropTable = (connectionId: string, ui: UiNode) => {
-    if (!ui.raw) return;
-    Modal.confirm({
-      title: `Xóa "${ui.raw.label}"?`,
-      content: 'Xóa cả cấu trúc lẫn dữ liệu. Không thể hoàn tác.',
-      okText: 'Xóa',
-      okType: 'danger',
-      cancelText: 'Hủy',
-      onOk: async () => {
-        try {
-          await window.api.dropTable(connectionId, targetOf(ui.raw!));
-          message.success('Đã xóa');
-          await refreshParentOf(connectionId, ui.key);
-        } catch (err) {
-          message.error(`Thất bại: ${(err as Error).message}`);
-        }
-      },
-    });
-  };
-
   const handleDropDatabase = (connectionId: string, ui: UiNode) => {
     if (!ui.raw) return;
     const name = (ui.raw.meta?.database as string) ?? ui.raw.label;
@@ -209,23 +163,6 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
         }
       },
     });
-  };
-
-  const submitRename = async () => {
-    if (!renameCtx) return;
-    const newName = renameValue.current.trim();
-    if (!newName || newName === renameCtx.current) {
-      setRenameCtx(null);
-      return;
-    }
-    try {
-      await window.api.renameTable(renameCtx.connectionId, renameCtx.target, newName);
-      message.success('Đã đổi tên');
-      if (renameCtx.parentKey) await reloadChildren(renameCtx.connectionId, renameCtx.parentKey);
-    } catch (err) {
-      message.error(`Đổi tên thất bại: ${(err as Error).message}`);
-    }
-    setRenameCtx(null);
   };
 
   const onSelect = (_keys: React.Key[], info: { node: DataNode }) => {
@@ -352,32 +289,15 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                 );
               }
 
-              // Menu cho node bảng/view/collection.
+              // Menu cho node bảng/view/collection — dùng chung với list table.
               if (['table', 'view', 'collection'].includes(raw.type)) {
+                const menu = buildTableMenu(
+                  { connectionId: conn.id, target: targetOf(raw), label: raw.label },
+                  conn.kind,
+                  () => void refreshParentOf(conn.id, ui.key),
+                );
                 return (
-                  <Dropdown
-                    trigger={['contextMenu']}
-                    menu={{
-                      items: [
-                        { key: 'truncate', label: 'Xóa dữ liệu (truncate)' },
-                        { key: 'rename', label: 'Đổi tên' },
-                        { key: 'drop', label: 'Xóa', danger: true },
-                      ],
-                      onClick: ({ key }) => {
-                        if (key === 'truncate') handleTruncate(conn.id, ui);
-                        else if (key === 'drop') handleDropTable(conn.id, ui);
-                        else if (key === 'rename') {
-                          renameValue.current = raw.label;
-                          setRenameCtx({
-                            connectionId: conn.id,
-                            target: targetOf(raw),
-                            current: raw.label,
-                            parentKey: findParentKey(treeData[conn.id] ?? [], ui.key),
-                          });
-                        }
-                      },
-                    }}
-                  >
+                  <Dropdown trigger={['contextMenu']} menu={menu}>
                     <span>{ui.title}</span>
                   </Dropdown>
                 );
@@ -408,23 +328,6 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
           onCreated={() => void reloadChildren(createCtx.connectionId, createCtx.parentKey)}
         />
       )}
-
-      <Modal
-        open={!!renameCtx}
-        title={`Đổi tên "${renameCtx?.current ?? ''}"`}
-        okText="Đổi tên"
-        cancelText="Hủy"
-        onCancel={() => setRenameCtx(null)}
-        onOk={submitRename}
-        destroyOnClose
-      >
-        <Input
-          placeholder="Tên mới"
-          defaultValue={renameCtx?.current}
-          onChange={(e) => (renameValue.current = e.target.value)}
-          onPressEnter={submitRename}
-        />
-      </Modal>
     </div>
   );
 }

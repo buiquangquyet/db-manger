@@ -248,6 +248,8 @@ export interface DatabaseAdapter {
   renameTable(target: DataTarget, newName: string): Promise<void>;
   /** Xóa một database/schema (Redis: FLUSHDB theo index). */
   dropDatabase(name: string): Promise<void>;
+  /** Sinh câu lệnh tạo bảng (DDL) — dùng cho "copy cấu trúc". */
+  getCreateStatement(target: DataTarget): Promise<string>;
 
   /** Chạy query/command tự do (SQL, mongo shell, redis command). */
   executeRaw(query: string, database?: string): Promise<QueryResult>;
@@ -297,6 +299,7 @@ export const IpcChannels = {
   ioExport: 'io:export',
   ioImport: 'io:import',
   ioSaveText: 'io:saveText',
+  ioCopyTableSql: 'io:copyTableSql',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -338,4 +341,6 @@ export interface RendererApi {
   importTable(connectionId: string, target: DataTarget, format: IoFormat): Promise<ImportResult>;
   /** Lưu nội dung văn bản tùy ý ra file (dùng cho export kết quả query). */
   saveTextFile(defaultName: string, content: string): Promise<{ path?: string; cancelled?: boolean }>;
+  /** Copy SQL của bảng vào clipboard: withData=true gồm cả INSERT, false chỉ DDL. */
+  copyTableSql(connectionId: string, target: DataTarget, withData: boolean): Promise<{ chars: number }>;
 }

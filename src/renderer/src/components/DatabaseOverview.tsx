@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Button, Empty, Spin, Table, Tag, Typography, message } from 'antd';
+import { Button, Dropdown, Empty, Spin, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { DatabaseOutlined, ReloadOutlined } from '@ant-design/icons';
-import type { DataTarget, TableSummary } from '@shared/types';
+import type { DataTarget, DbKind, TableSummary } from '@shared/types';
+import { buildTableMenu } from '../lib/tableActions';
 
 interface Props {
   connectionId: string;
+  kind: DbKind;
   database?: string;
   schema?: string;
   /** Nhãn hiển thị (tên database/schema). */
@@ -28,9 +30,11 @@ function formatRows(rows: number | null): string {
   return rows == null ? '—' : rows.toLocaleString('vi-VN');
 }
 
-export function DatabaseOverview({ connectionId, database, schema, label, onOpenTable }: Props) {
+export function DatabaseOverview({ connectionId, kind, database, schema, label, onOpenTable }: Props) {
   const [tables, setTables] = useState<TableSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
+  // Vị trí + dòng của menu chuột phải.
+  const [ctx, setCtx] = useState<{ row: TableSummary; x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,11 +155,35 @@ export function DatabaseOverview({ connectionId, database, schema, label, onOpen
               onRow={(record) => ({
                 style: { cursor: 'pointer' },
                 onClick: () => onOpenTable({ database, schema, name: record.name }),
+                onContextMenu: (e) => {
+                  e.preventDefault();
+                  setCtx({ row: record, x: e.clientX, y: e.clientY });
+                },
               })}
             />
           )}
         </Spin>
       </div>
+
+      {/* Menu chuột phải: neo vào 1 điểm ẩn tại vị trí con trỏ. */}
+      <Dropdown
+        open={!!ctx}
+        trigger={[]}
+        onOpenChange={(o) => {
+          if (!o) setCtx(null);
+        }}
+        menu={
+          ctx
+            ? buildTableMenu(
+                { connectionId, target: { database, schema, name: ctx.row.name }, label: ctx.row.name },
+                kind,
+                reload,
+              )
+            : { items: [] }
+        }
+      >
+        <div style={{ position: 'fixed', left: ctx?.x ?? -9999, top: ctx?.y ?? -9999, width: 0, height: 0 }} />
+      </Dropdown>
     </div>
   );
 }

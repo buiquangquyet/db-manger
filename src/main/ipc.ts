@@ -4,7 +4,7 @@ import { IpcChannels } from '@shared/types';
 import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
-import { exportTable, importTable, saveTextFile } from './io';
+import { copyTableSql, exportTable, importTable, saveTextFile } from './io';
 
 export function registerIpc(): void {
   const store = new SecureStore();
@@ -110,6 +110,10 @@ export function registerIpc(): void {
 
   ipcMain.handle(IpcChannels.ioSaveText, (_e, defaultName: string, content: string) =>
     saveTextFile(defaultName, content),
+  );
+
+  ipcMain.handle(IpcChannels.ioCopyTableSql, (_e, connectionId: string, target: DataTarget, withData: boolean) =>
+    copyTableSql(sessions, connectionId, target, withData),
   );
 
   return;

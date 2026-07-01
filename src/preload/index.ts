@@ -59,6 +59,8 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.ioImport, connectionId, target, format),
   saveTextFile: (defaultName: string, content: string) =>
     ipcRenderer.invoke(IpcChannels.ioSaveText, defaultName, content),
+  copyTableSql: (connectionId: string, target: DataTarget, withData: boolean) =>
+    ipcRenderer.invoke(IpcChannels.ioCopyTableSql, connectionId, target, withData),
 };
 
 contextBridge.exposeInMainWorld('api', api);

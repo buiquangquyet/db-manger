@@ -265,6 +265,13 @@ export class MariaDbAdapter implements DatabaseAdapter {
     await this.db().query(`DROP DATABASE ${quoteIdentMysql(name)}`);
   }
 
+  async getCreateStatement(target: DataTarget): Promise<string> {
+    const [rows] = await this.db().query(`SHOW CREATE TABLE ${this.qualify(target)}`);
+    const row = (rows as Record<string, string>[])[0] ?? {};
+    // MySQL trả về cột 'Create Table' (hoặc 'Create View' cho view).
+    return (row['Create Table'] ?? row['Create View'] ?? '') + ';';
+  }
+
   /** Sinh mệnh đề định nghĩa cột: `name` type NULL/NOT NULL [DEFAULT ...]. */
   private colDef(c: ColumnSpec): string {
     let def = `${quoteIdentMysql(c.name)} ${c.dataType} ${c.nullable ? 'NULL' : 'NOT NULL'}`;
