@@ -22,16 +22,21 @@ npm run typecheck  # kiểm tra kiểu (node + web)
 Sản phẩm xuất ra `release/<version>/` (đã được `.gitignore`).
 
 ```bash
-npm run pack:dir    # build nhanh ra thư mục .app (không installer, để test)
-npm run dist:mac    # macOS: dmg + zip
-npm run dist:win    # Windows: installer nsis
-npm run dist:linux  # Linux: AppImage + deb
-npm run dist        # đóng gói cho nền tảng hiện tại
+npm run dist:mac      # macOS: dmg + zip (stamp version, không upload)
+npm run dist:win      # Windows: installer nsis
+npm run dist:linux    # Linux: AppImage + deb
+npm run release:mac   # build + upload lên S3/CDN
+npm run publish       # chỉ upload bản build mới nhất trong release/
 ```
 
-- Cấu hình ở `electron-builder.yml`; icon nguồn `build/icon.png` (1024×1024) → tự sinh `.icns`/`.ico`.
+- **Version tự động**: mỗi lần `dist:*`/`release:*` chạy `scripts/release.mjs` sẽ đặt version =
+  `YYYY.MMDD.HHMMSS` (thời điểm build) trong 1 tiến trình duy nhất → mỗi bản build 1 version khác nhau.
+  Sản phẩm ra `release/<version>/` (đã `.gitignore`).
+- **Publish lên S3/CDN**: `scripts/publish.mjs` upload thư mục build mới nhất lên bucket S3
+  (VNG vStorage) và in link CDN. Cấu hình để trong `.env` (xem `.env.example`); `.env` KHÔNG commit.
+- Cấu hình đóng gói ở `electron-builder.yml`; icon nguồn `build/icon.png` (1024×1024) → tự sinh `.icns`/`.ico`.
 - **Code signing macOS** bị bỏ qua nếu chưa có "Developer ID Application"; app vẫn chạy local nhưng
-  cần Developer ID + notarize (bật `hardenedRuntime`) để phân phối rộng.
+  cần Developer ID + notarize để phân phối rộng.
 - Build `--win`/`--linux` từ máy Mac cần thêm công cụ (Wine/Mono, hoặc dùng CI/Docker).
 - Nếu gặp lỗi TLS self-signed cert (mạng công ty), chạy kèm `NODE_OPTIONS=--use-system-ca`.
 

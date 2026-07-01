@@ -13,11 +13,14 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "publish": "node scripts/publish.mjs",
     "pack:dir": "electron-vite build && electron-builder --dir",
-    "dist": "electron-vite build && electron-builder",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:mac": "node scripts/release.mjs --mac --no-publish",
+    "dist:win": "node scripts/release.mjs --win --no-publish",
+    "dist:linux": "node scripts/release.mjs --linux --no-publish",
+    "release:mac": "node scripts/release.mjs --mac",
+    "release:win": "node scripts/release.mjs --win",
+    "release:linux": "node scripts/release.mjs --linux"
   },
   "dependencies": {
     "ioredis": "^5.4.1",
@@ -28,6 +31,7 @@
   },
   "devDependencies": {
     "@ant-design/icons": "^5.5.2",
+    "@aws-sdk/client-s3": "^3.1077.0",
     "@types/node": "^22.10.2",
     "@types/pg": "^8.11.10",
     "@types/react": "^18.3.17",
