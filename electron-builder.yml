@@ -1,0 +1,51 @@
+appId: com.kiotviet.dbmanager
+productName: DB Manager
+copyright: Copyright © 2026 KiotViet
+
+directories:
+  # Nơi electron-builder tìm icon.* và tài nguyên đóng gói.
+  buildResources: build
+  # Sản phẩm đầu ra (dmg/exe/AppImage) theo từng phiên bản.
+  output: release/${version}
+
+# Chỉ đóng gói output đã build của electron-vite + manifest.
+files:
+  - out/**/*
+  - package.json
+
+# node_modules production (mysql2, pg, mongodb, ioredis) tự động được nhúng.
+asar: true
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  # Cho phép chạy khi chưa ký (dev). Bật hardenedRuntime khi có chứng chỉ để notarize.
+  hardenedRuntime: false
+
+dmg:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  icon: build/icon.png
+  maintainer: quyet.bq <quyet.bq@kiotviet.com>
+  artifactName: ${productName}-${version}-${arch}.${ext}

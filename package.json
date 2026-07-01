@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Trình quản lý database đa nền tảng (MongoDB, Redis, MariaDB, PostgreSQL) giống Navicat",
   "main": "./out/main/index.js",
-  "author": "",
+  "author": "quyet.bq <quyet.bq@kiotviet.com>",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,12 @@
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "pack:dir": "electron-vite build && electron-builder --dir",
+    "dist": "electron-vite build && electron-builder",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
     "ioredis": "^5.4.1",
@@ -31,6 +36,7 @@
     "ag-grid-react": "^32.3.5",
     "antd": "^5.22.5",
     "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "monaco-editor": "^0.52.2",
     "react": "^18.3.1",
