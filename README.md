@@ -17,6 +17,24 @@ npm run build      # đóng gói main/preload/renderer vào out/
 npm run typecheck  # kiểm tra kiểu (node + web)
 ```
 
+## Đóng gói (electron-builder)
+
+Sản phẩm xuất ra `release/<version>/` (đã được `.gitignore`).
+
+```bash
+npm run pack:dir    # build nhanh ra thư mục .app (không installer, để test)
+npm run dist:mac    # macOS: dmg + zip
+npm run dist:win    # Windows: installer nsis
+npm run dist:linux  # Linux: AppImage + deb
+npm run dist        # đóng gói cho nền tảng hiện tại
+```
+
+- Cấu hình ở `electron-builder.yml`; icon nguồn `build/icon.png` (1024×1024) → tự sinh `.icns`/`.ico`.
+- **Code signing macOS** bị bỏ qua nếu chưa có "Developer ID Application"; app vẫn chạy local nhưng
+  cần Developer ID + notarize (bật `hardenedRuntime`) để phân phối rộng.
+- Build `--win`/`--linux` từ máy Mac cần thêm công cụ (Wine/Mono, hoặc dùng CI/Docker).
+- Nếu gặp lỗi TLS self-signed cert (mạng công ty), chạy kèm `NODE_OPTIONS=--use-system-ca`.
+
 ## Kiến trúc
 
 ```
@@ -35,8 +53,12 @@ src/
 ├── preload/index.ts       # contextBridge -> window.api (typed)
 └── renderer/src/          # React UI
     ├── App.tsx            # layout sidebar + tabs
-    └── components/        # Sidebar, ConnectionModal, DataGridView, QueryPanel
+    └── components/        # Sidebar, ConnectionModal, DataGridView, DatabaseOverview,
+                           # StructureView, QueryPanel, các modal thêm/sửa cột & index
 ```
+
+Chọn một **database/schema** ở sidebar sẽ mở `DatabaseOverview` — bảng liệt kê table/collection
+kèm số dòng, dung lượng, engine; click một dòng để mở dữ liệu của bảng đó.
 
 **Nguyên tắc bảo mật:** driver DB chỉ chạy ở main process; renderer không có quyền Node,
 chỉ gọi qua `window.api` (preload) → IPC. Mật khẩu được mã hóa bằng keychain OS (`safeStorage`).
@@ -49,7 +71,10 @@ chỉ gọi qua `window.api` (preload) → IPC. Mật khẩu được mã hóa b
 - [x] Scaffold Electron + IPC có type
 - [x] Quản lý kết nối (CRUD, test, lưu mã hóa)
 - [x] Cây database lazy-load + duyệt dữ liệu (grid có phân trang)
+- [x] Tổng quan database: danh sách bảng kèm số dòng/dung lượng/engine
 - [x] Query editor (Monaco) cho cả 4 loại DB
-- [ ] Sửa dữ liệu inline trong grid
+- [x] Sửa dữ liệu inline trong grid (thêm/sửa/xóa dòng)
+- [x] Xem/sửa cấu trúc bảng (structure tab): cột, index, ALTER TABLE
+- [x] Đóng gói app (electron-builder) + icon ứng dụng
 - [ ] Import/Export CSV/JSON/SQL
-- [ ] Xem cấu trúc bảng (structure tab), tạo/sửa schema
+- [ ] Code signing + notarize để phân phối
