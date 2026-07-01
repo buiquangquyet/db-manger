@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm config *)",
+      "Bash(ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install)",
+      "Bash(npm run *)",
+      "Bash(npx electron *)",
+      "Bash([ -f \"$f\" ])",
+      "Bash(pkill -f \"electron-vite\")",
+      "Bash(pkill -f \"db_manager/node_modules/electron\")",
+      "Bash(:)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

@@ -1,0 +1,90 @@
+import { ipcMain } from 'electron';
+import type { AlterOperation, ConnectionConfig, DataTarget, PageRequest, TreeNode } from '@shared/types';
+import { IpcChannels } from '@shared/types';
+import { SecureStore } from './secure-store';
+import { SessionManager } from './session-manager';
+import { createAdapter } from './adapters';
+
+export function registerIpc(): void {
+  const store = new SecureStore();
+  const sessions = new SessionManager();
+
+  ipcMain.handle(IpcChannels.ping, () => 'pong');
+
+  ipcMain.handle(IpcChannels.connectionsList, () => store.list());
+
+  ipcMain.handle(IpcChannels.connectionsSave, (_e, config: ConnectionConfig) => store.save(config));
+
+  ipcMain.handle(IpcChannels.connectionsDelete, async (_e, id: string) => {
+    await sessions.close(id);
+    store.delete(id);
+  });
+
+  ipcMain.handle(IpcChannels.connectionsTest, async (_e, config: ConnectionConfig) => {
+    const adapter = createAdapter(config);
+    try {
+      return await adapter.testConnection();
+    } finally {
+      await adapter.disconnect();
+    }
+  });
+
+  ipcMain.handle(IpcChannels.sessionOpen, async (_e, connectionId: string) => {
+    const config = store.hydrate(connectionId);
+    if (!config) throw new Error(`Không tìm thấy kết nối ${connectionId}`);
+    const adapter = await sessions.open(config);
+    return adapter.capabilities;
+  });
+
+  ipcMain.handle(IpcChannels.sessionClose, (_e, connectionId: string) => sessions.close(connectionId));
+
+  ipcMain.handle(IpcChannels.treeRoot, (_e, connectionId: string) =>
+    sessions.get(connectionId).getRootNodes(),
+  );
+
+  ipcMain.handle(IpcChannels.treeChildren, (_e, connectionId: string, node: TreeNode) =>
+    sessions.get(connectionId).getChildNodes(node),
+  );
+
+  ipcMain.handle(IpcChannels.treeTableList, (_e, connectionId: string, database?: string, schema?: string) =>
+    sessions.get(connectionId).getTableList(database, schema),
+  );
+
+  ipcMain.handle(IpcChannels.dataRead, (_e, connectionId: string, target: DataTarget, page: PageRequest) =>
+    sessions.get(connectionId).readRows(target, page),
+  );
+
+  ipcMain.handle(IpcChannels.dataStructure, (_e, connectionId: string, target: DataTarget) =>
+    sessions.get(connectionId).getStructure(target),
+  );
+
+  ipcMain.handle(IpcChannels.dataAlter, (_e, connectionId: string, target: DataTarget, op: AlterOperation) =>
+    sessions.get(connectionId).alterTable(target, op),
+  );
+
+  ipcMain.handle(
+    IpcChannels.dataUpdate,
+    (_e, connectionId: string, target: DataTarget, rowKey: Record<string, unknown>, column: string, value: unknown) =>
+      sessions.get(connectionId).updateCell(target, rowKey, column, value),
+  );
+
+  ipcMain.handle(
+    IpcChannels.dataInsert,
+    (_e, connectionId: string, target: DataTarget, values: Record<string, unknown>) =>
+      sessions.get(connectionId).insertRow(target, values),
+  );
+
+  ipcMain.handle(
+    IpcChannels.dataDelete,
+    (_e, connectionId: string, target: DataTarget, rowKey: Record<string, unknown>) =>
+      sessions.get(connectionId).deleteRow(target, rowKey),
+  );
+
+  ipcMain.handle(
+    IpcChannels.queryExecute,
+    (_e, connectionId: string, query: string, database?: string) =>
+      sessions.get(connectionId).executeRaw(query, database),
+  );
+
+  return;
+}

@@ -1,0 +1,41 @@
+{
+  "name": "db_manager",
+  "version": "0.1.0",
+  "description": "Trình quản lý database đa nền tảng (MongoDB, Redis, MariaDB, PostgreSQL) giống Navicat",
+  "main": "./out/main/index.js",
+  "author": "",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "mongodb": "^6.12.0",
+    "mysql2": "^3.11.5",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@ant-design/icons": "^5.5.2",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "ag-grid-community": "^32.3.5",
+    "ag-grid-react": "^32.3.5",
+    "antd": "^5.22.5",
+    "electron": "^33.2.1",
+    "electron-vite": "^2.3.0",
+    "monaco-editor": "^0.52.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}
