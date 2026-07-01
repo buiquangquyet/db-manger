@@ -124,14 +124,25 @@ export class MongoAdapter implements DatabaseAdapter {
     if (!database) throw new Error('Thiếu tên database cho MongoDB');
     const col = this.c().db(database).collection(target.name);
 
-    const total = await col.estimatedDocumentCount();
+    // Tìm kiếm: regex (không phân biệt hoa/thường) trên các field lấy mẫu từ 1 document.
+    let filter: Record<string, unknown> = {};
+    const search = page.search?.trim();
+    if (search) {
+      const sample = await col.findOne({});
+      const keys = sample ? Object.keys(sample) : [];
+      const rx = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      if (keys.length) filter = { $or: keys.map((k) => ({ [k]: rx })) };
+    }
+
+    // Có filter thì đếm chính xác; không thì dùng ước lượng (nhanh).
+    const total = search ? await col.countDocuments(filter) : await col.estimatedDocumentCount();
     const sort = page.orderBy?.reduce<Record<string, 1 | -1>>((acc, o) => {
       acc[o.column] = o.dir === 'desc' ? -1 : 1;
       return acc;
     }, {});
 
     const docs = await col
-      .find({}, { sort })
+      .find(filter, { sort })
       .skip(page.offset)
       .limit(page.limit)
       .toArray();

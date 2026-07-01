@@ -84,6 +84,8 @@ export interface PageRequest {
   limit: number;
   /** sắp xếp: [{column, dir}]. */
   orderBy?: { column: string; dir: 'asc' | 'desc' }[];
+  /** Tìm kiếm phía server: SQL -> LIKE mọi cột, Mongo -> regex, Redis -> MATCH pattern. */
+  search?: string;
 }
 
 /** Mô tả một cột trong kết quả. */

@@ -91,9 +91,11 @@ export class RedisAdapter implements DatabaseAdapter {
 
   /** Đọc key bằng SCAN có phân trang; mỗi dòng = 1 key với type & preview. */
   async readRows(target: DataTarget, page: PageRequest): Promise<RowSet> {
-    const dbIndex = Number(target.database ?? 0);
-    await this.r().select(dbIndex);
-    const pattern = target.name || '*';
+    // Node keyspace ở sidebar đặt dbIndex vào target.name; ưu tiên database rồi tới name.
+    const dbIndex = Number(target.database ?? target.name ?? 0);
+    await this.r().select(Number.isFinite(dbIndex) ? dbIndex : 0);
+    // Tìm kiếm map sang MATCH pattern (glob của Redis); mặc định '*' để liệt kê hết.
+    const pattern = page.search?.trim() || '*';
 
     // MVP phân trang đơn giản: SCAN toàn bộ rồi cắt trang (đủ cho tập key vừa phải).
     const keys: string[] = [];

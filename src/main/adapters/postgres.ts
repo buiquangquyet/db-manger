@@ -134,13 +134,27 @@ export class PostgresAdapter implements DatabaseAdapter {
           page.orderBy.map((o) => `${quoteIdentPg(o.column)} ${o.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
         : '';
 
-    const countRes = await this.db().query(`SELECT COUNT(*)::int AS c FROM ${qualified}`);
+    // Tìm kiếm: ILIKE (không phân biệt hoa/thường) trên mọi cột, ép TEXT để bắt cả số/ngày.
+    let where = '';
+    const whereParams: unknown[] = [];
+    const search = page.search?.trim();
+    if (search) {
+      const cols = await this.columnNames(schema, target.name);
+      if (cols.length) {
+        where =
+          ' WHERE ' + cols.map((c, i) => `CAST(${quoteIdentPg(c)} AS TEXT) ILIKE $${i + 1}`).join(' OR ');
+        cols.forEach(() => whereParams.push(`%${search}%`));
+      }
+    }
+    const n = whereParams.length;
+
+    const countRes = await this.db().query(`SELECT COUNT(*)::int AS c FROM ${qualified}${where}`, whereParams);
     const total = countRes.rows[0]?.c ?? 0;
 
-    const res = await this.db().query(`SELECT * FROM ${qualified}${order} LIMIT $1 OFFSET $2`, [
-      page.limit,
-      page.offset,
-    ]);
+    const res = await this.db().query(
+      `SELECT * FROM ${qualified}${where}${order} LIMIT $${n + 1} OFFSET $${n + 2}`,
+      [...whereParams, page.limit, page.offset],
+    );
 
     const pks = await this.primaryKeys(schema, target.name);
     return {
@@ -252,6 +266,16 @@ export class PostgresAdapter implements DatabaseAdapter {
         return;
       }
     }
+  }
+
+  /** Danh sách tên cột của bảng (để dựng mệnh đề tìm kiếm). */
+  private async columnNames(schema: string, table: string): Promise<string[]> {
+    const res = await this.db().query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`,
+      [schema, table],
+    );
+    return res.rows.map((r: { column_name: string }) => r.column_name);
   }
 
   /** Lấy tập cột khóa chính của bảng. */

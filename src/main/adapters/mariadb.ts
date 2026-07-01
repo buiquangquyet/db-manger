@@ -145,12 +145,25 @@ export class MariaDbAdapter implements DatabaseAdapter {
           page.orderBy.map((o) => `${quoteIdentMysql(o.column)} ${o.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
         : '';
 
-    const [countRows] = await this.db().query(`SELECT COUNT(*) AS c FROM ${qualified}`);
+    // Tìm kiếm: LIKE trên mọi cột (ép CHAR để bắt cả số/ngày). Tham số hóa để an toàn.
+    let where = '';
+    const whereParams: unknown[] = [];
+    const search = page.search?.trim();
+    if (search) {
+      const cols = await this.columnNames(db, target.name);
+      if (cols.length) {
+        const like = `%${search}%`;
+        where = ' WHERE ' + cols.map((c) => `CAST(${quoteIdentMysql(c)} AS CHAR) LIKE ?`).join(' OR ');
+        cols.forEach(() => whereParams.push(like));
+      }
+    }
+
+    const [countRows] = await this.db().query(`SELECT COUNT(*) AS c FROM ${qualified}${where}`, whereParams);
     const total = Number((countRows as { c: number }[])[0]?.c ?? 0);
 
     const [rows, fields] = await this.db().query(
-      `SELECT * FROM ${qualified}${order} LIMIT ? OFFSET ?`,
-      [page.limit, page.offset],
+      `SELECT * FROM ${qualified}${where}${order} LIMIT ? OFFSET ?`,
+      [...whereParams, page.limit, page.offset],
     );
 
     const pks = await this.primaryKeys(db, target.name);
@@ -226,6 +239,16 @@ export class MariaDbAdapter implements DatabaseAdapter {
     let def = `${quoteIdentMysql(c.name)} ${c.dataType} ${c.nullable ? 'NULL' : 'NOT NULL'}`;
     if (c.default !== null && c.default !== '') def += ` DEFAULT ${c.default}`;
     return def;
+  }
+
+  /** Danh sách tên cột của bảng (để dựng mệnh đề tìm kiếm). */
+  private async columnNames(database: string | undefined, table: string): Promise<string[]> {
+    const [rows] = await this.db().query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position`,
+      [database ?? this.config.database, table],
+    );
+    return (rows as { column_name: string }[]).map((r) => r.column_name);
   }
 
   /** Lấy tập cột khóa chính của bảng (để sửa inline an toàn). */

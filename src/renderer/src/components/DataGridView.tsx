@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { CellValueChangedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
-import { Button, Modal, Pagination, Space, Spin, message } from 'antd';
+import { Button, Input, Modal, Pagination, Space, Spin, message } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
@@ -23,6 +23,8 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
+  const [orderBy, setOrderBy] = useState<{ column: string; dir: 'asc' | 'desc' }[]>([]);
+  const [search, setSearch] = useState('');
   const gridApiRef = useRef<GridApi | null>(null);
 
   const load = useCallback(
@@ -32,6 +34,8 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
         const rs = await window.api.readRows(connectionId, target, {
           offset: (p - 1) * PAGE_SIZE,
           limit: PAGE_SIZE,
+          orderBy: orderBy.length ? orderBy : undefined,
+          search: search || undefined,
         });
         setRowSet(rs);
         setSelectedCount(0);
@@ -41,8 +45,18 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
         setLoading(false);
       }
     },
-    [connectionId, target],
+    [connectionId, target, orderBy, search],
   );
+
+  // Ánh xạ trạng thái sort của ag-grid -> orderBy gửi xuống server (hỗ trợ multi-sort).
+  const onSortChanged = useCallback(() => {
+    const state = gridApiRef.current?.getColumnState() ?? [];
+    const next = state
+      .filter((s) => s.sort)
+      .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))
+      .map((s) => ({ column: s.colId, dir: s.sort as 'asc' | 'desc' }));
+    setOrderBy(next);
+  }, []);
 
   // Reset về trang 1 mỗi khi đổi bảng/collection.
   useEffect(() => {
@@ -150,7 +164,16 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
+      <div
+        style={{
+          padding: 8,
+          borderBottom: '1px solid #f0f0f0',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
         <Space>
           <Button size="small" icon={<PlusOutlined />} disabled={!canInsert} onClick={() => setAddOpen(true)}>
             Thêm dòng
@@ -165,18 +188,31 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
             Xóa dòng{selectedCount > 0 ? ` (${selectedCount})` : ''}
           </Button>
         </Space>
+        <Input.Search
+          size="small"
+          allowClear
+          placeholder="Tìm trên toàn bảng…"
+          style={{ width: 260 }}
+          defaultValue={search}
+          // onSearch bắn cả khi bấm Enter/nút tìm lẫn khi xóa (allowClear) -> value=''.
+          onSearch={(v) => setSearch(v.trim())}
+        />
       </div>
       <div className="grid-wrap ag-theme-quartz">
         <Spin spinning={loading} wrapperClassName="grid-spin" style={{ height: '100%' }}>
           <AgGridReact
             rowData={rowSet?.rows ?? []}
             columnDefs={columnDefs}
-            defaultColDef={{ minWidth: 120, filter: true }}
+            // filter=false: lọc thực hiện phía server qua ô tìm kiếm (client chỉ có 1 trang).
+            defaultColDef={{ minWidth: 120, filter: false }}
             animateRows={false}
             rowSelection="multiple"
             suppressRowClickSelection
             stopEditingWhenCellsLoseFocus
+            // Sort do server đảm nhiệm; tắt sort client để không xáo lại trang hiện tại.
+            suppressMultiSort={false}
             onCellValueChanged={onCellValueChanged}
+            onSortChanged={onSortChanged}
             onGridReady={(e: GridReadyEvent) => (gridApiRef.current = e.api)}
             onSelectionChanged={() => setSelectedCount(gridApiRef.current?.getSelectedRows().length ?? 0)}
           />

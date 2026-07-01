@@ -97,6 +97,7 @@ export default function App() {
           ),
           children: target ? (
             <DataGridView
+              key={`${session.connection.id}:${target.database ?? ''}:${target.schema ?? ''}:${target.name}`}
               connectionId={session.connection.id}
               target={target}
               inlineEdit={session.capabilities.inlineEdit}
