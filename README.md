@@ -61,20 +61,24 @@ Chọn một **database/schema** ở sidebar sẽ mở `DatabaseOverview` — b�
 kèm số dòng, dung lượng, engine; click một dòng để mở dữ liệu của bảng đó.
 
 **Nguyên tắc bảo mật:** driver DB chỉ chạy ở main process; renderer không có quyền Node,
-chỉ gọi qua `window.api` (preload) → IPC. Mật khẩu được mã hóa bằng keychain OS (`safeStorage`).
+chỉ gọi qua `window.api` (preload) → IPC. Mật khẩu và bí mật SSH được mã hóa bằng keychain OS
+(`safeStorage`). Hỗ trợ SSL/TLS và SSH tunnel (qua bastion) cho kết nối production.
 
 **Điểm mở rộng:** thêm loại DB mới = thêm 1 adapter hiện thực `DatabaseAdapter` và đăng ký trong
-`adapters/index.ts`. UI tự thích ứng theo `capabilities` (SQL editor, mô hình dữ liệu…).
+`adapters/index.ts`. UI tự thích ứng theo `capabilities` (SQL editor, mô hình dữ liệu, `manageObjects`…).
 
 ## Trạng thái / lộ trình
 
 - [x] Scaffold Electron + IPC có type
-- [x] Quản lý kết nối (CRUD, test, lưu mã hóa)
+- [x] Quản lý kết nối (CRUD, test, lưu mã hóa) — kèm SSL/TLS & SSH tunnel
 - [x] Cây database lazy-load + duyệt dữ liệu (grid có phân trang)
 - [x] Tổng quan database: danh sách bảng kèm số dòng/dung lượng/engine
+- [x] Sắp xếp & tìm kiếm phía server trong grid dữ liệu
+- [x] Tạo/xóa/truncate/đổi tên bảng & xóa database (context menu sidebar)
 - [x] Query editor (Monaco) cho cả 4 loại DB
 - [x] Sửa dữ liệu inline trong grid (thêm/sửa/xóa dòng)
 - [x] Xem/sửa cấu trúc bảng (structure tab): cột, index, ALTER TABLE
+- [x] Import/Export CSV/JSON/SQL (bảng & kết quả query)
 - [x] Đóng gói app (electron-builder) + icon ứng dụng
-- [ ] Import/Export CSV/JSON/SQL
+- [ ] Sửa document MongoDB inline (hiện chỉ đọc)
 - [ ] Code signing + notarize để phân phối
