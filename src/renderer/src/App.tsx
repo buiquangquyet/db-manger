@@ -164,7 +164,7 @@ function queryPlaceholder(cap: Capabilities): string {
     case 'relational':
       return 'SELECT * FROM ...';
     case 'document':
-      return '{"find":"users","limit":10}';
+      return 'db.users.find({}).limit(10)';
     case 'keyvalue':
       return 'GET my-key';
   }
