@@ -168,8 +168,14 @@ export class MongoAdapter implements DatabaseAdapter {
       const out: Record<string, unknown> = {};
       for (const k of colSet) {
         const v = (d as Record<string, unknown>)[k];
-        // Giá trị lồng nhau -> JSON để grid hiển thị được.
-        out[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
+        // ObjectId -> chuỗi hex trần (không có dấu nháy) để dùng lại làm rowKey (toId nhận diện được).
+        // Giá trị lồng nhau khác -> JSON để grid hiển thị được.
+        out[k] =
+          v instanceof ObjectId
+            ? v.toHexString()
+            : v !== null && typeof v === 'object'
+              ? JSON.stringify(v)
+              : v;
       }
       return out;
     });
