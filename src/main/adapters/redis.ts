@@ -21,6 +21,7 @@ export class RedisAdapter implements DatabaseAdapter {
     dataModel: 'keyvalue',
     queryLabel: 'Redis Command',
     inlineEdit: true,
+    documentEdit: false,
     alterStructure: false,
     manageObjects: false,
   };

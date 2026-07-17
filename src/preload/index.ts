@@ -53,6 +53,16 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.dataInsert, connectionId, target, values),
   deleteRow: (connectionId: string, target: DataTarget, rowKey: Record<string, unknown>) =>
     ipcRenderer.invoke(IpcChannels.dataDelete, connectionId, target, rowKey),
+  getDocument: (connectionId: string, target: DataTarget, rowKey: Record<string, unknown>) =>
+    ipcRenderer.invoke(IpcChannels.dataGetDocument, connectionId, target, rowKey),
+  updateDocument: (
+    connectionId: string,
+    target: DataTarget,
+    rowKey: Record<string, unknown>,
+    ejson: string,
+  ) => ipcRenderer.invoke(IpcChannels.dataUpdateDocument, connectionId, target, rowKey, ejson),
+  insertDocument: (connectionId: string, target: DataTarget, ejson: string) =>
+    ipcRenderer.invoke(IpcChannels.dataInsertDocument, connectionId, target, ejson),
   executeQuery: (connectionId: string, query: string, database?: string) =>
     ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, database),
   exportTable: (connectionId: string, target: DataTarget, format: IoFormat) =>

@@ -24,6 +24,7 @@ export class MariaDbAdapter implements DatabaseAdapter {
     dataModel: 'relational',
     queryLabel: 'SQL',
     inlineEdit: true,
+    documentEdit: false,
     alterStructure: true,
     manageObjects: true,
   };

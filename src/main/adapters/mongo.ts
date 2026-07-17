@@ -1,4 +1,7 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId, BSON } from 'mongodb';
+// mongodb 6.x không export EJSON ở top-level module — chỉ có qua namespace BSON.
+// Dùng lại BSON.EJSON để tránh thêm dependency 'bson' riêng.
+const { EJSON } = BSON;
 import type {
   Capabilities,
   ConnectionConfig,
@@ -22,6 +25,7 @@ export class MongoAdapter implements DatabaseAdapter {
     queryLabel: 'Mongo Shell',
     // Tạm chưa cho sửa inline: document lồng nhau + _id kiểu BSON cần UI riêng.
     inlineEdit: false,
+    documentEdit: true,
     // MongoDB schemaless — không có ALTER TABLE.
     alterStructure: false,
     // Cho phép tạo/xóa/đổi tên collection & xóa database.
@@ -158,7 +162,7 @@ export class MongoAdapter implements DatabaseAdapter {
     // Gom tất cả key xuất hiện để dựng cột (document có schema linh hoạt).
     const colSet = new Set<string>();
     for (const d of docs) for (const k of Object.keys(d)) colSet.add(k);
-    const columns = [...colSet].map((name) => ({ name }));
+    const columns = [...colSet].map((name) => ({ name, isPrimaryKey: name === '_id' }));
 
     const rows = docs.map((d) => {
       const out: Record<string, unknown> = {};
@@ -282,6 +286,50 @@ export class MongoAdapter implements DatabaseAdapter {
     return `// MongoDB collection "${target.name}" (schemaless)\ndb.createCollection(${JSON.stringify(target.name)});`;
   }
 
+  /** Chuyển _id từ rowKey về ObjectId nếu là chuỗi hex 24 ký tự; ngược lại giữ nguyên. */
+  private toId(rowKey: Record<string, unknown>): unknown {
+    const id = rowKey._id;
+    if (typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id)) return new ObjectId(id);
+    return id;
+  }
+
+  async getDocument(target: DataTarget, rowKey: Record<string, unknown>): Promise<string> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const doc = await col.findOne({ _id: this.toId(rowKey) as never });
+    if (!doc) throw new Error('Không tìm thấy document.');
+    return EJSON.stringify(doc, undefined, 2);
+  }
+
+  async updateDocument(
+    target: DataTarget,
+    rowKey: Record<string, unknown>,
+    ejson: string,
+  ): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const id = this.toId(rowKey);
+    const doc = EJSON.parse(ejson) as Record<string, unknown>;
+    // Không cho đổi _id.
+    if ('_id' in doc && EJSON.stringify(doc._id) !== EJSON.stringify(id)) {
+      throw new Error('Không thể thay đổi _id của document.');
+    }
+    // Loại _id khỏi phần thay thế để tránh lỗi immutable field.
+    delete doc._id;
+    const res = await col.replaceOne({ _id: id as never }, doc);
+    if (res.matchedCount === 0) throw new Error('Không tìm thấy document để cập nhật.');
+  }
+
+  async insertDocument(target: DataTarget, ejson: string): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const doc = EJSON.parse(ejson) as Record<string, unknown>;
+    await col.insertOne(doc as never);
+  }
+
   async updateCell(): Promise<void> {
     throw new Error('Sửa inline cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }
@@ -290,8 +338,14 @@ export class MongoAdapter implements DatabaseAdapter {
     throw new Error('Thêm dòng cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }
 
-  async deleteRow(): Promise<void> {
-    throw new Error('Xóa dòng cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
+  async deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const res = await this.c()
+      .db(database)
+      .collection(target.name)
+      .deleteOne({ _id: this.toId(rowKey) as never });
+    if (res.deletedCount === 0) throw new Error('Không tìm thấy document để xóa.');
   }
 }
 
