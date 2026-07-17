@@ -1,6 +1,6 @@
 {
   "name": "db_manager",
-  "version": "2026.701.145302",
+  "version": "2026.717.145544",
   "description": "Trình quản lý database đa nền tảng (MongoDB, Redis, MariaDB, PostgreSQL) giống Navicat",
   "main": "./out/main/index.js",
   "author": "quyet.bq <quyet.bq@kiotviet.com>",
