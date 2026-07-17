@@ -105,7 +105,7 @@ export function DocumentModal({ open, mode, connectionId, target, rowKey, onClos
       title={TITLES[mode]}
       width={720}
       onCancel={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         mode === 'view' ? (
           <Button onClick={onClose}>Đóng</Button>

@@ -149,6 +149,16 @@ Thêm `documentEdit: false` vào `capabilities` của từng adapter (bắt bu�
 - Sửa nhiều document cùng lúc (bulk edit).
 - Validate schema JSON tùy chỉnh.
 
+## Giới hạn đã biết
+
+- **_id dạng object** (compound `_id` hoặc sub-document): `readRows` JSON hóa nên không dựng lại
+  được khóa → xem/sửa/xóa các document đó báo "không tìm thấy". `_id` kiểu ObjectId hoặc vô
+  hướng (string/number) hoạt động bình thường.
+- **Chuỗi 24 ký tự hex làm _id dạng string**: bị `toId` ép thành ObjectId → có thể không khớp.
+  Hiếm gặp; hệ quả của thiết kế round-trip _id qua chuỗi hex trần.
+- **EJSON canonical**: hiển thị số BSON dạng `{"$numberLong":...}` (dài dòng hơn) để giữ đúng
+  kiểu/độ chính xác khi lưu lại — đây là đánh đổi có chủ đích, không phải lỗi.
+
 ## Kiểm thử / nghiệm thu
 
 - Mở một collection có document lồng nhau → double-click → thấy JSON đầy đủ, đúng kiểu (ObjectId, Date hiển thị dạng EJSON).

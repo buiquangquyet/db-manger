@@ -298,6 +298,9 @@ export class MongoAdapter implements DatabaseAdapter {
     if (typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id)) return new ObjectId(id);
     return id;
   }
+  // Giới hạn đã biết: _id dạng object (compound _id / sub-document) bị readRows JSON hóa
+  // nên không dựng lại được ở đây -> xem/sửa/xóa các document đó sẽ báo "không tìm thấy".
+  // _id kiểu ObjectId hoặc vô hướng (string/number) hoạt động bình thường.
 
   async getDocument(target: DataTarget, rowKey: Record<string, unknown>): Promise<string> {
     const database = target.database ?? this.config.database;
@@ -305,7 +308,9 @@ export class MongoAdapter implements DatabaseAdapter {
     const col = this.c().db(database).collection(target.name);
     const doc = await col.findOne({ _id: this.toId(rowKey) as never });
     if (!doc) throw new Error('Không tìm thấy document.');
-    return EJSON.stringify(doc, undefined, 2);
+    // Canonical EJSON (relaxed:false): giữ nguyên kiểu số BSON (Int32/Long/Double) — tránh
+    // mất chính xác Long > 2^53 khi hiển thị rồi lưu lại.
+    return EJSON.stringify(doc, undefined, 2, { relaxed: false });
   }
 
   async updateDocument(
@@ -317,7 +322,8 @@ export class MongoAdapter implements DatabaseAdapter {
     if (!database) throw new Error('Thiếu tên database cho MongoDB');
     const col = this.c().db(database).collection(target.name);
     const id = this.toId(rowKey);
-    const doc = EJSON.parse(ejson) as Record<string, unknown>;
+    // relaxed:false: dựng lại đúng kiểu số BSON từ {$numberLong/$numberInt/...} khi lưu.
+    const doc = EJSON.parse(ejson, { relaxed: false }) as Record<string, unknown>;
     // Không cho đổi _id.
     if ('_id' in doc && EJSON.stringify(doc._id) !== EJSON.stringify(id)) {
       throw new Error('Không thể thay đổi _id của document.');
@@ -332,7 +338,8 @@ export class MongoAdapter implements DatabaseAdapter {
     const database = target.database ?? this.config.database;
     if (!database) throw new Error('Thiếu tên database cho MongoDB');
     const col = this.c().db(database).collection(target.name);
-    const doc = EJSON.parse(ejson) as Record<string, unknown>;
+    // relaxed:false: dựng lại đúng kiểu số BSON từ {$numberLong/$numberInt/...} khi thêm.
+    const doc = EJSON.parse(ejson, { relaxed: false }) as Record<string, unknown>;
     await col.insertOne(doc as never);
   }
 
