@@ -1,4 +1,5 @@
 import { MongoClient, ObjectId, BSON } from 'mongodb';
+import { evalMongoShell } from './mongo-shell';
 // mongodb 6.x không export EJSON ở top-level module — chỉ có qua namespace BSON.
 // Dùng lại BSON.EJSON để tránh thêm dependency 'bson' riêng.
 const { EJSON } = BSON;
@@ -183,44 +184,36 @@ export class MongoAdapter implements DatabaseAdapter {
     return { columns, rows, total };
   }
 
-  /** Chạy lệnh dạng: db.<collection>.find({...}) hoặc runCommand JSON. MVP: hỗ trợ find/aggregate cơ bản. */
+  /**
+   * Chạy ô Mongo Shell. Hai chế độ (nhánh không chồng lấn theo ký tự đầu):
+   * - Bắt đầu bằng `{` → JSON `runCommand` (tương thích ngược), vd {"find":"users","limit":10}.
+   * - Ngược lại → biểu thức mongosh, vd db.users.find({}).sort({_id:-1}).limit(10).
+   */
   async executeRaw(query: string, database?: string): Promise<QueryResult> {
     const started = process.hrtime.bigint();
     const db = this.c().db(database ?? this.config.database);
-
-    // MVP: cho phép chạy runCommand bằng JSON thuần, ví dụ {"find":"users","limit":10}
     const trimmed = query.trim();
-    if (!trimmed.startsWith('{')) {
-      throw new Error(
-        'MVP MongoShell: hãy nhập lệnh runCommand dạng JSON, ví dụ {"find":"users","limit":10}',
-      );
-    }
-    const command = JSON.parse(trimmed);
-    const result = await db.command(command);
-    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
 
-    // Kết quả find/aggregate nằm trong cursor.firstBatch.
-    const batch: unknown[] | undefined = result?.cursor?.firstBatch;
-    if (Array.isArray(batch)) {
-      const colSet = new Set<string>();
-      for (const d of batch) for (const k of Object.keys(d as object)) colSet.add(k);
-      return {
-        rowSet: {
-          columns: [...colSet].map((name) => ({ name })),
-          rows: batch.map((d) => {
-            const out: Record<string, unknown> = {};
-            for (const k of colSet) {
-              const v = (d as Record<string, unknown>)[k];
-              out[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
-            }
-            return out;
-          }),
-          total: batch.length,
-        },
-        durationMs,
-      };
+    // Chế độ JSON runCommand (giữ nguyên hành vi cũ).
+    if (trimmed.startsWith('{')) {
+      const command = JSON.parse(trimmed);
+      const result = await db.command(command);
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      const batch: unknown[] | undefined = result?.cursor?.firstBatch;
+      if (Array.isArray(batch)) {
+        return { rowSet: docsToRowSet(batch), durationMs };
+      }
+      return { message: JSON.stringify(result), durationMs };
     }
-    return { message: JSON.stringify(result), durationMs };
+
+    // Chế độ biểu thức shell.
+    let value = await evalMongoShell(db, trimmed);
+    // find/aggregate trả cursor — materialize thành mảng.
+    if (value && typeof (value as { toArray?: unknown }).toArray === 'function') {
+      value = await (value as { toArray(): Promise<unknown[]> }).toArray();
+    }
+    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    return formatShellValue(value, durationMs);
   }
 
   async getStructure(target: DataTarget): Promise<TableStructure> {
@@ -375,6 +368,66 @@ export class MongoAdapter implements DatabaseAdapter {
       .deleteOne({ _id: this.toId(rowKey) as never });
     if (res.deletedCount === 0) throw new Error('Không tìm thấy document để xóa.');
   }
+}
+
+/** Dựng RowSet từ mảng document: hợp nhất key thành cột, ObjectId→hex, object lồng→JSON. */
+function docsToRowSet(docs: unknown[]): RowSet {
+  // Giá trị nguyên thủy (vd distinct) được bọc dưới cột "value".
+  const objs = docs.map((d) =>
+    d !== null && typeof d === 'object' && !Array.isArray(d)
+      ? (d as Record<string, unknown>)
+      : { value: d },
+  );
+  const colSet = new Set<string>();
+  for (const d of objs) for (const k of Object.keys(d)) colSet.add(k);
+  const columns = [...colSet].map((name) => ({ name, isPrimaryKey: name === '_id' }));
+  const rows = objs.map((d) => {
+    const out: Record<string, unknown> = {};
+    for (const k of colSet) {
+      const v = d[k];
+      out[k] =
+        v instanceof ObjectId
+          ? v.toHexString()
+          : v !== null && typeof v === 'object'
+            ? JSON.stringify(v)
+            : v;
+    }
+    return out;
+  });
+  return { columns, rows, total: rows.length };
+}
+
+/** Chuẩn hóa giá trị driver trả về (sau khi đã materialize cursor) thành QueryResult. */
+function formatShellValue(value: unknown, durationMs: number): QueryResult {
+  // Mảng document (find/aggregate/distinct) → bảng.
+  if (Array.isArray(value)) return { rowSet: docsToRowSet(value), durationMs };
+
+  // Kết quả lệnh ghi: mọi CRUD result đều có cờ `acknowledged`.
+  if (value !== null && typeof value === 'object' && 'acknowledged' in value) {
+    return { message: formatWriteResult(value as Record<string, unknown>), durationMs };
+  }
+
+  // findOne trả 1 document → bảng 1 dòng.
+  if (value !== null && typeof value === 'object') {
+    return { rowSet: docsToRowSet([value]), durationMs };
+  }
+
+  // null (findOne không khớp) hoặc scalar (countDocuments...) → thông điệp.
+  return { message: value === null ? '(null)' : String(value), durationMs };
+}
+
+/** Tóm tắt kết quả lệnh ghi theo các field có mặt. */
+function formatWriteResult(r: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof r.insertedCount === 'number') parts.push(`đã thêm ${r.insertedCount}`);
+  if (r.insertedId != null) parts.push(`insertedId: ${String(r.insertedId)}`);
+  if (typeof r.matchedCount === 'number') parts.push(`khớp ${r.matchedCount}`);
+  if (typeof r.modifiedCount === 'number') parts.push(`sửa ${r.modifiedCount}`);
+  if (typeof r.upsertedCount === 'number' && r.upsertedCount > 0)
+    parts.push(`upsert ${r.upsertedCount}`);
+  if (r.upsertedId != null) parts.push(`upsertedId: ${String(r.upsertedId)}`);
+  if (typeof r.deletedCount === 'number') parts.push(`đã xóa ${r.deletedCount}`);
+  return parts.length ? parts.join(', ') : JSON.stringify(r);
 }
 
 /**
