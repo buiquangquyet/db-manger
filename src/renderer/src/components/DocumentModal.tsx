@@ -85,6 +85,10 @@ export function DocumentModal({ open, mode, connectionId, target, rowKey, onClos
       } else if (rowKey) {
         await window.api.updateDocument(connectionId, target, rowKey, text);
         message.success('Đã cập nhật document');
+      } else {
+        // Không có rowKey ở chế độ sửa -> không xác định được document; báo lỗi thay vì báo thành công giả.
+        message.error('Thiếu khóa định danh document để lưu.');
+        return;
       }
       onSaved();
       onClose();
