@@ -82,17 +82,22 @@ Dựng `RowSet` dùng lại cách hiện có trong `executeRaw`/`readRows`: hợ
 
 ## Testing
 
-`mongo-shell.ts` test được **không cần DB thật**: truyền `db` giả lập mà mỗi collection ghi lại
-lời gọi và trả về cursor/promise mẫu. Ca kiểm thử:
+Repo **không có test framework** (theo đúng convention của feature MongoDB trước đó). Xác minh
+theo hai lớp:
 
-- `findOne` với `ObjectId("...")` → gọi đúng collection/method/filter, `ObjectId` dựng đúng.
-- Chaining `find().sort().limit()` → cursor nhận đúng chuỗi lời gọi.
-- `aggregate([...])` → pipeline truyền đúng.
-- `updateOne(...)` → trả về result ghi.
-- Định danh bị cấm (`process`, `require`) → ném lỗi / không truy cập được.
+1. **Cổng tự động:** `npm run typecheck` phải sạch (`strict: true` ở cả hai tsconfig).
+2. **Kiểm thử hành vi thủ công** qua `npm run dev`, chạy checklist lệnh shell thật trên một
+   MongoDB kết nối được:
+   - `db.<col>.findOne({_id: ObjectId("...")})` → 1 dòng.
+   - `db.<col>.find({}).sort({_id: -1}).limit(5)` → tối đa 5 dòng, đúng thứ tự.
+   - `db.<col>.aggregate([{$limit: 3}])` → 3 dòng.
+   - `db.<col>.countDocuments({})` → message số đếm.
+   - `db.<col>.insertOne({_probe: 1})` rồi `db.<col>.deleteOne({_probe: 1})` → message ghi.
+   - `{"find":"<col>","limit":1}` (JSON cũ) → vẫn chạy (tương thích ngược).
+   - `process.exit(0)` / biểu thức lạ → báo lỗi gọn, app không crash.
 
-Chuẩn hóa kết quả trong `mongo.ts` phủ bằng một formatter nhỏ nhận các giá trị thô trên và
-kiểm tra `RowSet` / `message` đầu ra.
+`evalMongoShell` được tách riêng để dễ suy luận và có thể bổ sung test tự động sau khi repo có
+test runner, nhưng phạm vi hiện tại không thêm dependency test.
 
 ## Backward compatibility
 
