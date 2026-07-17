@@ -347,8 +347,20 @@ export class MongoAdapter implements DatabaseAdapter {
     throw new Error('Sửa inline cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }
 
-  async insertRow(): Promise<void> {
-    throw new Error('Thêm dòng cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
+  /**
+   * Thêm 1 document (dùng cho import CSV/JSON). Giá trị chuỗi (từ CSV) được suy kiểu tự động:
+   * số round-trip chính xác -> number, "true"/"false" -> boolean, ô trống -> bỏ field, còn lại giữ chuỗi.
+   * Giá trị không phải chuỗi (số/bool/object từ JSON) giữ nguyên.
+   */
+  async insertRow(target: DataTarget, values: Record<string, unknown>): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const doc: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(values)) {
+      const coerced = coerceCsvValue(v);
+      if (coerced !== undefined) doc[k] = coerced;
+    }
+    await this.c().db(database).collection(target.name).insertOne(doc as never);
   }
 
   async deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void> {
@@ -360,6 +372,21 @@ export class MongoAdapter implements DatabaseAdapter {
       .deleteOne({ _id: this.toId(rowKey) as never });
     if (res.deletedCount === 0) throw new Error('Không tìm thấy document để xóa.');
   }
+}
+
+/**
+ * Suy kiểu một giá trị khi import. Chỉ đụng tới chuỗi (từ CSV); giá trị đã có kiểu (JSON) giữ nguyên.
+ * Trả về `undefined` để ra hiệu "bỏ field" (ô trống).
+ */
+function coerceCsvValue(v: unknown): unknown {
+  if (typeof v !== 'string') return v; // number/boolean/object từ JSON: giữ nguyên
+  if (v === '') return undefined; // ô trống -> bỏ field
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  // Chỉ ép thành số khi round-trip khớp tuyệt đối: loại "007", "1e5", "1.50", số > 2^53...
+  const n = Number(v);
+  if (Number.isFinite(n) && String(n) === v) return n;
+  return v;
 }
 
 /** Đoán kiểu hiển thị của một giá trị BSON. */
