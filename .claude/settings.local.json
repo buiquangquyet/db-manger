@@ -10,7 +10,15 @@
       "Bash(pkill -f \"electron-vite\")",
       "Bash(pkill -f \"db_manager/node_modules/electron\")",
       "Bash(:)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git commit -q -m ' *)",
+      "Bash(curl -fsSL \"https://cdn-icons-png.flaticon.com/512/9850/9850812.png\" -o /Users/quyet.bq/Public/db_manager/resources/icon.png)",
+      "Bash(git add *)",
+      "Bash(npm -v)",
+      "Bash(sips -z 1024 1024 /Users/quyet.bq/Public/db_manager/resources/icon.png --out /Users/quyet.bq/Public/db_manager/build/icon.png)",
+      "Bash(open \"/Users/quyet.bq/Public/db_manager/release/0.1.0/mac-arm64/DB Manager.app\")",
+      "Bash(pkill -f \"DB Manager.app\")",
+      "Bash(NODE_OPTIONS=--use-system-ca npm run *)"
     ]
   }
 }

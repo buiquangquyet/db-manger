@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Empty, Tabs, message } from 'antd';
+import { Empty, Tabs } from 'antd';
 import { DatabaseOutlined, CodeOutlined, TableOutlined } from '@ant-design/icons';
 import type { Capabilities, DataTarget, StoredConnection } from '@shared/types';
 import { Sidebar } from './components/Sidebar';
@@ -40,15 +40,13 @@ export default function App() {
   }, [refresh]);
 
   const handleOpen = useCallback(async (conn: StoredConnection) => {
-    try {
-      const capabilities = await window.api.openSession(conn.id);
-      setSession({ connection: conn, capabilities });
-      setTarget(null);
-      setDbSelection(null);
-      setActiveTab('query');
-    } catch (err) {
-      message.error(`Mở kết nối thất bại: ${(err as Error).message}`);
-    }
+    // Ném lỗi ra ngoài để caller (loadRoot, handleCreateDatabase...) dừng lại
+    // trước khi gọi IPC cần session; nếu nuốt lỗi, main process sẽ ném "Phiên chưa mở".
+    const capabilities = await window.api.openSession(conn.id);
+    setSession({ connection: conn, capabilities });
+    setTarget(null);
+    setDbSelection(null);
+    setActiveTab('query');
   }, []);
 
   // Chọn bảng/collection -> nhảy sang tab Dữ liệu.
