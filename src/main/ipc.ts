@@ -99,6 +99,33 @@ export function registerIpc(): void {
   );
 
   ipcMain.handle(
+    IpcChannels.dataGetDocument,
+    (_e, connectionId: string, target: DataTarget, rowKey: Record<string, unknown>) => {
+      const adapter = sessions.get(connectionId);
+      if (!adapter.getDocument) throw new Error('Loại DB này không hỗ trợ xem document.');
+      return adapter.getDocument(target, rowKey);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.dataUpdateDocument,
+    (_e, connectionId: string, target: DataTarget, rowKey: Record<string, unknown>, ejson: string) => {
+      const adapter = sessions.get(connectionId);
+      if (!adapter.updateDocument) throw new Error('Loại DB này không hỗ trợ sửa document.');
+      return adapter.updateDocument(target, rowKey, ejson);
+    },
+  );
+
+  ipcMain.handle(
+    IpcChannels.dataInsertDocument,
+    (_e, connectionId: string, target: DataTarget, ejson: string) => {
+      const adapter = sessions.get(connectionId);
+      if (!adapter.insertDocument) throw new Error('Loại DB này không hỗ trợ thêm document.');
+      return adapter.insertDocument(target, ejson);
+    },
+  );
+
+  ipcMain.handle(
     IpcChannels.queryExecute,
     (_e, connectionId: string, query: string, database?: string) =>
       sessions.get(connectionId).executeRaw(query, database),

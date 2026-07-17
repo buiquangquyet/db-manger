@@ -99,6 +99,7 @@ export default function App() {
               connectionId={session.connection.id}
               target={target}
               inlineEdit={session.capabilities.inlineEdit}
+              documentEdit={session.capabilities.documentEdit}
             />
           ) : (
             needTarget

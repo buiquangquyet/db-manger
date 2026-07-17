@@ -18,7 +18,11 @@
       "Bash(sips -z 1024 1024 /Users/quyet.bq/Public/db_manager/resources/icon.png --out /Users/quyet.bq/Public/db_manager/build/icon.png)",
       "Bash(open \"/Users/quyet.bq/Public/db_manager/release/0.1.0/mac-arm64/DB Manager.app\")",
       "Bash(pkill -f \"DB Manager.app\")",
-      "Bash(NODE_OPTIONS=--use-system-ca npm run *)"
+      "Bash(NODE_OPTIONS=--use-system-ca npm run *)",
+      "Bash(node -e \"const m = require\\('mongodb'\\); console.log\\(Object.keys\\(m\\).filter\\(k => /ejson/i.test\\(k\\)\\)\\);\")",
+      "Bash(node *)",
+      "Bash(node -e \"console.log\\(require\\('mongodb/package.json'\\).version\\)\")",
+      "Bash(node -e \"const m=require\\('mongodb'\\); console.log\\('EJSON:', typeof m.EJSON, '| BSON.EJSON:', typeof \\(m.BSON&&m.BSON.EJSON\\), '| ObjectId:', typeof m.ObjectId\\)\")"
     ]
   }
 }

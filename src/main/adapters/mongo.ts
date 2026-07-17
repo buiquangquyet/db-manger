@@ -1,4 +1,7 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId, BSON } from 'mongodb';
+// mongodb 6.x không export EJSON ở top-level module — chỉ có qua namespace BSON.
+// Dùng lại BSON.EJSON để tránh thêm dependency 'bson' riêng.
+const { EJSON } = BSON;
 import type {
   Capabilities,
   ConnectionConfig,
@@ -22,6 +25,7 @@ export class MongoAdapter implements DatabaseAdapter {
     queryLabel: 'Mongo Shell',
     // Tạm chưa cho sửa inline: document lồng nhau + _id kiểu BSON cần UI riêng.
     inlineEdit: false,
+    documentEdit: true,
     // MongoDB schemaless — không có ALTER TABLE.
     alterStructure: false,
     // Cho phép tạo/xóa/đổi tên collection & xóa database.
@@ -158,14 +162,20 @@ export class MongoAdapter implements DatabaseAdapter {
     // Gom tất cả key xuất hiện để dựng cột (document có schema linh hoạt).
     const colSet = new Set<string>();
     for (const d of docs) for (const k of Object.keys(d)) colSet.add(k);
-    const columns = [...colSet].map((name) => ({ name }));
+    const columns = [...colSet].map((name) => ({ name, isPrimaryKey: name === '_id' }));
 
     const rows = docs.map((d) => {
       const out: Record<string, unknown> = {};
       for (const k of colSet) {
         const v = (d as Record<string, unknown>)[k];
-        // Giá trị lồng nhau -> JSON để grid hiển thị được.
-        out[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
+        // ObjectId -> chuỗi hex trần (không có dấu nháy) để dùng lại làm rowKey (toId nhận diện được).
+        // Giá trị lồng nhau khác -> JSON để grid hiển thị được.
+        out[k] =
+          v instanceof ObjectId
+            ? v.toHexString()
+            : v !== null && typeof v === 'object'
+              ? JSON.stringify(v)
+              : v;
       }
       return out;
     });
@@ -282,17 +292,101 @@ export class MongoAdapter implements DatabaseAdapter {
     return `// MongoDB collection "${target.name}" (schemaless)\ndb.createCollection(${JSON.stringify(target.name)});`;
   }
 
+  /** Chuyển _id từ rowKey về ObjectId nếu là chuỗi hex 24 ký tự; ngược lại giữ nguyên. */
+  private toId(rowKey: Record<string, unknown>): unknown {
+    const id = rowKey._id;
+    if (typeof id === 'string' && /^[a-fA-F0-9]{24}$/.test(id)) return new ObjectId(id);
+    return id;
+  }
+  // Giới hạn đã biết: _id dạng object (compound _id / sub-document) bị readRows JSON hóa
+  // nên không dựng lại được ở đây -> xem/sửa/xóa các document đó sẽ báo "không tìm thấy".
+  // _id kiểu ObjectId hoặc vô hướng (string/number) hoạt động bình thường.
+
+  async getDocument(target: DataTarget, rowKey: Record<string, unknown>): Promise<string> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const doc = await col.findOne({ _id: this.toId(rowKey) as never });
+    if (!doc) throw new Error('Không tìm thấy document.');
+    // Canonical EJSON (relaxed:false): giữ nguyên kiểu số BSON (Int32/Long/Double) — tránh
+    // mất chính xác Long > 2^53 khi hiển thị rồi lưu lại.
+    return EJSON.stringify(doc, undefined, 2, { relaxed: false });
+  }
+
+  async updateDocument(
+    target: DataTarget,
+    rowKey: Record<string, unknown>,
+    ejson: string,
+  ): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const id = this.toId(rowKey);
+    // relaxed:false: dựng lại đúng kiểu số BSON từ {$numberLong/$numberInt/...} khi lưu.
+    const doc = EJSON.parse(ejson, { relaxed: false }) as Record<string, unknown>;
+    // Không cho đổi _id.
+    if ('_id' in doc && EJSON.stringify(doc._id) !== EJSON.stringify(id)) {
+      throw new Error('Không thể thay đổi _id của document.');
+    }
+    // Loại _id khỏi phần thay thế để tránh lỗi immutable field.
+    delete doc._id;
+    const res = await col.replaceOne({ _id: id as never }, doc);
+    if (res.matchedCount === 0) throw new Error('Không tìm thấy document để cập nhật.');
+  }
+
+  async insertDocument(target: DataTarget, ejson: string): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    // relaxed:false: dựng lại đúng kiểu số BSON từ {$numberLong/$numberInt/...} khi thêm.
+    const doc = EJSON.parse(ejson, { relaxed: false }) as Record<string, unknown>;
+    await col.insertOne(doc as never);
+  }
+
   async updateCell(): Promise<void> {
     throw new Error('Sửa inline cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }
 
-  async insertRow(): Promise<void> {
-    throw new Error('Thêm dòng cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
+  /**
+   * Thêm 1 document (dùng cho import CSV/JSON). Giá trị chuỗi (từ CSV) được suy kiểu tự động:
+   * số round-trip chính xác -> number, "true"/"false" -> boolean, ô trống -> bỏ field, còn lại giữ chuỗi.
+   * Giá trị không phải chuỗi (số/bool/object từ JSON) giữ nguyên.
+   */
+  async insertRow(target: DataTarget, values: Record<string, unknown>): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const doc: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(values)) {
+      const coerced = coerceCsvValue(v);
+      if (coerced !== undefined) doc[k] = coerced;
+    }
+    await this.c().db(database).collection(target.name).insertOne(doc as never);
   }
 
-  async deleteRow(): Promise<void> {
-    throw new Error('Xóa dòng cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
+  async deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const res = await this.c()
+      .db(database)
+      .collection(target.name)
+      .deleteOne({ _id: this.toId(rowKey) as never });
+    if (res.deletedCount === 0) throw new Error('Không tìm thấy document để xóa.');
   }
+}
+
+/**
+ * Suy kiểu một giá trị khi import. Chỉ đụng tới chuỗi (từ CSV); giá trị đã có kiểu (JSON) giữ nguyên.
+ * Trả về `undefined` để ra hiệu "bỏ field" (ô trống).
+ */
+function coerceCsvValue(v: unknown): unknown {
+  if (typeof v !== 'string') return v; // number/boolean/object từ JSON: giữ nguyên
+  if (v === '') return undefined; // ô trống -> bỏ field
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  // Chỉ ép thành số khi round-trip khớp tuyệt đối: loại "007", "1e5", "1.50", số > 2^53...
+  const n = Number(v);
+  if (Number.isFinite(n) && String(n) === v) return n;
+  return v;
 }
 
 /** Đoán kiểu hiển thị của một giá trị BSON. */

@@ -7,21 +7,25 @@ import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
 import type { DataTarget, IoFormat, RowSet } from '@shared/types';
 import { AddRowModal } from './AddRowModal';
+import { DocumentModal, type DocumentModalMode } from './DocumentModal';
 
 const PAGE_SIZE = 100;
 
 interface Props {
   connectionId: string;
   target: DataTarget;
-  /** Loại DB có cho sửa/thêm/xóa dữ liệu hay không (từ capabilities). */
+  /** Loại DB có cho sửa/thêm/xóa dữ liệu inline hay không (từ capabilities). */
   inlineEdit: boolean;
+  /** Loại DB dùng luồng document JSON (MongoDB) hay không. */
+  documentEdit: boolean;
 }
 
-export function DataGridView({ connectionId, target, inlineEdit }: Props) {
+export function DataGridView({ connectionId, target, inlineEdit, documentEdit }: Props) {
   const [rowSet, setRowSet] = useState<RowSet | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [docModal, setDocModal] = useState<{ mode: DocumentModalMode; rowKey?: Record<string, unknown> } | null>(null);
   const [selectedCount, setSelectedCount] = useState(0);
   const [orderBy, setOrderBy] = useState<{ column: string; dir: 'asc' | 'desc' }[]>([]);
   const [search, setSearch] = useState('');
@@ -66,8 +70,12 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
 
   // Chỉ cho sửa/xóa khi DB hỗ trợ VÀ bảng có khóa chính (để xác định dòng an toàn).
   const hasPrimaryKey = useMemo(() => rowSet?.columns.some((c) => c.isPrimaryKey) ?? false, [rowSet?.columns]);
-  const canEdit = inlineEdit && hasPrimaryKey;
-  const canInsert = inlineEdit && (rowSet?.columns.length ?? 0) > 0;
+  // Sửa ô inline: chỉ luồng SQL.
+  const canInlineEdit = inlineEdit && hasPrimaryKey;
+  // Xóa dòng: cả SQL (inline) lẫn document (Mongo) đều dùng được nếu có khóa.
+  const canDelete = (inlineEdit || documentEdit) && hasPrimaryKey;
+  // Thêm dòng/document.
+  const canInsert = documentEdit || (inlineEdit && (rowSet?.columns.length ?? 0) > 0);
 
   /** Dựng khóa định danh dòng từ các cột khóa chính. */
   const buildRowKey = useCallback(
@@ -88,13 +96,13 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
       headerName: c.isPrimaryKey ? `🔑 ${c.name}` : c.name,
       sortable: true,
       resizable: true,
-      // Không cho sửa cột khóa chính (dùng để định danh dòng).
-      editable: canEdit && !c.isPrimaryKey,
+      // Không cho sửa cột khóa chính; chỉ sửa inline ở luồng SQL.
+      editable: canInlineEdit && !c.isPrimaryKey,
       valueFormatter: (p) =>
         p.value === null || p.value === undefined ? '' : typeof p.value === 'object' ? JSON.stringify(p.value) : String(p.value),
     }));
-    // Cột checkbox chọn dòng (chỉ khi có thể xóa).
-    if (canEdit) {
+    // Cột checkbox chọn dòng (khi có thể xóa).
+    if (canDelete) {
       cols.unshift({
         checkboxSelection: true,
         headerCheckboxSelection: true,
@@ -107,7 +115,7 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
       });
     }
     return cols;
-  }, [rowSet?.columns, canEdit]);
+  }, [rowSet?.columns, canInlineEdit, canDelete]);
 
   const onCellValueChanged = useCallback(
     async (e: CellValueChangedEvent) => {
@@ -124,6 +132,19 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
     },
     [connectionId, target, buildRowKey],
   );
+
+  const onRowDoubleClicked = useCallback(
+    (e: { data: Record<string, unknown> }) => {
+      if (!documentEdit) return;
+      setDocModal({ mode: 'edit', rowKey: buildRowKey(e.data) });
+    },
+    [documentEdit, buildRowKey],
+  );
+
+  const handleAddClick = () => {
+    if (documentEdit) setDocModal({ mode: 'create' });
+    else setAddOpen(true);
+  };
 
   const handleExport = async (format: IoFormat) => {
     try {
@@ -196,14 +217,14 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
         }}
       >
         <Space>
-          <Button size="small" icon={<PlusOutlined />} disabled={!canInsert} onClick={() => setAddOpen(true)}>
+          <Button size="small" icon={<PlusOutlined />} disabled={!canInsert} onClick={handleAddClick}>
             Thêm dòng
           </Button>
           <Button
             size="small"
             danger
             icon={<DeleteOutlined />}
-            disabled={!canEdit || selectedCount === 0}
+            disabled={!canDelete || selectedCount === 0}
             onClick={handleDelete}
           >
             Xóa dòng{selectedCount > 0 ? ` (${selectedCount})` : ''}
@@ -261,6 +282,7 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
             // Sort do server đảm nhiệm; tắt sort client để không xáo lại trang hiện tại.
             suppressMultiSort={false}
             onCellValueChanged={onCellValueChanged}
+            onRowDoubleClicked={onRowDoubleClicked}
             onSortChanged={onSortChanged}
             onGridReady={(e: GridReadyEvent) => (gridApiRef.current = e.api)}
             onSelectionChanged={() => setSelectedCount(gridApiRef.current?.getSelectedRows().length ?? 0)}
@@ -269,11 +291,15 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
       </div>
       <div style={{ padding: 8, borderTop: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ color: '#999', fontSize: 12 }}>
-          {canEdit
-            ? 'Double-click ô để sửa · tick chọn dòng để xóa (cột 🔑 không sửa được)'
-            : inlineEdit
-              ? 'Không sửa/xóa được: bảng thiếu khóa chính'
-              : 'Loại DB này chưa hỗ trợ sửa dữ liệu'}
+          {documentEdit
+            ? canDelete
+              ? 'Double-click để xem/sửa document · tick chọn dòng để xóa'
+              : 'Double-click để xem/sửa document'
+            : canInlineEdit
+              ? 'Double-click ô để sửa · tick chọn dòng để xóa (cột 🔑 không sửa được)'
+              : inlineEdit
+                ? 'Không sửa/xóa được: bảng thiếu khóa chính'
+                : 'Loại DB này chưa hỗ trợ sửa dữ liệu'}
         </span>
         <Pagination
           size="small"
@@ -295,6 +321,18 @@ export function DataGridView({ connectionId, target, inlineEdit }: Props) {
         onClose={() => setAddOpen(false)}
         onSubmit={handleInsert}
       />
+
+      {docModal && (
+        <DocumentModal
+          open
+          mode={docModal.mode}
+          connectionId={connectionId}
+          target={target}
+          rowKey={docModal.rowKey}
+          onClose={() => setDocModal(null)}
+          onSaved={() => void load(page)}
+        />
+      )}
     </div>
   );
 }

@@ -64,6 +64,8 @@ export interface Capabilities {
   queryLabel: string;
   /** Cho phép sửa dữ liệu inline trong grid hay không. */
   inlineEdit: boolean;
+  /** Cho phép xem/sửa cả document dạng JSON (mô hình document như MongoDB). */
+  documentEdit: boolean;
   /** Cho phép sửa cấu trúc bảng (ALTER TABLE) hay không. */
   alterStructure: boolean;
   /** Cho phép tạo/xóa/đổi tên bảng & xóa database. */
@@ -269,6 +271,15 @@ export interface DatabaseAdapter {
 
   /** Xóa một dòng theo khóa định danh (khóa chính với SQL, 'key' với Redis). */
   deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void>;
+
+  /** (Document DB) Lấy 1 document theo khóa định danh, trả chuỗi EJSON (pretty). */
+  getDocument?(target: DataTarget, rowKey: Record<string, unknown>): Promise<string>;
+
+  /** (Document DB) Thay thế 1 document (theo _id cũ) bằng nội dung EJSON mới. */
+  updateDocument?(target: DataTarget, rowKey: Record<string, unknown>, ejson: string): Promise<void>;
+
+  /** (Document DB) Thêm 1 document mới từ chuỗi EJSON. */
+  insertDocument?(target: DataTarget, ejson: string): Promise<void>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,6 +309,9 @@ export const IpcChannels = {
   dataUpdate: 'data:update',
   dataInsert: 'data:insert',
   dataDelete: 'data:delete',
+  dataGetDocument: 'data:getDocument',
+  dataUpdateDocument: 'data:updateDocument',
+  dataInsertDocument: 'data:insertDocument',
   queryExecute: 'query:execute',
   ioExport: 'io:export',
   ioImport: 'io:import',
@@ -338,6 +352,14 @@ export interface RendererApi {
   ): Promise<void>;
   insertRow(connectionId: string, target: DataTarget, values: Record<string, unknown>): Promise<void>;
   deleteRow(connectionId: string, target: DataTarget, rowKey: Record<string, unknown>): Promise<void>;
+  getDocument(connectionId: string, target: DataTarget, rowKey: Record<string, unknown>): Promise<string>;
+  updateDocument(
+    connectionId: string,
+    target: DataTarget,
+    rowKey: Record<string, unknown>,
+    ejson: string,
+  ): Promise<void>;
+  insertDocument(connectionId: string, target: DataTarget, ejson: string): Promise<void>;
   executeQuery(connectionId: string, query: string, database?: string): Promise<QueryResult>;
   /** Xuất toàn bộ dữ liệu một bảng ra file (mở hộp thoại lưu). */
   exportTable(connectionId: string, target: DataTarget, format: IoFormat): Promise<ExportResult>;
