@@ -358,7 +358,10 @@ export class MongoAdapter implements DatabaseAdapter {
     const doc: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) {
       const coerced = coerceCsvValue(v);
-      if (coerced !== undefined) doc[k] = coerced;
+      if (coerced === undefined) continue;
+      // _id được export dưới dạng hex trần (ObjectId) hoặc có thể dính nháy kép từ file nguồn;
+      // dựng lại ObjectId để round-trip không biến _id thành chuỗi (khớp toId khi xem/sửa/xóa).
+      doc[k] = k === '_id' ? coerceImportedId(coerced) : coerced;
     }
     await this.c().db(database).collection(target.name).insertOne(doc as never);
   }
@@ -387,6 +390,18 @@ function coerceCsvValue(v: unknown): unknown {
   const n = Number(v);
   if (Number.isFinite(n) && String(n) === v) return n;
   return v;
+}
+
+/**
+ * Chuẩn hóa `_id` khi import CSV/JSON. Bỏ đúng 1 lớp nháy kép bao ngoài nếu file nguồn lỡ kèm
+ * (vd `"69a9…18c"` -> `69a9…18c`), rồi dựng lại ObjectId khi là chuỗi hex 24 ký tự. Các _id
+ * kiểu khác (chuỗi thường, số...) giữ nguyên.
+ */
+function coerceImportedId(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const unquoted =
+    v.length >= 2 && v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
+  return /^[a-fA-F0-9]{24}$/.test(unquoted) ? new ObjectId(unquoted) : unquoted;
 }
 
 /** Đoán kiểu hiển thị của một giá trị BSON. */
