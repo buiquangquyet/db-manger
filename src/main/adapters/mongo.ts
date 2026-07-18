@@ -5,6 +5,7 @@ import { evalMongoShell } from './mongo-shell';
 const { EJSON } = BSON;
 import type {
   Capabilities,
+  ColumnFilter,
   ConnectionConfig,
   DataTarget,
   DatabaseAdapter,
@@ -138,18 +139,26 @@ export class MongoAdapter implements DatabaseAdapter {
     if (!database) throw new Error('Thiếu tên database cho MongoDB');
     const col = this.c().db(database).collection(target.name);
 
-    // Tìm kiếm: regex (không phân biệt hoa/thường) trên các field lấy mẫu từ 1 document.
-    let filter: Record<string, unknown> = {};
+    // Search toàn bảng (regex mọi field lấy mẫu).
+    let searchFilter: Record<string, unknown> | null = null;
     const search = page.search?.trim();
     if (search) {
       const sample = await col.findOne({});
       const keys = sample ? Object.keys(sample) : [];
       const rx = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-      if (keys.length) filter = { $or: keys.map((k) => ({ [k]: rx })) };
+      if (keys.length) searchFilter = { $or: keys.map((k) => ({ [k]: rx })) };
     }
+    // Lọc theo cột (AND). Kết hợp với search bằng $and khi cả hai đều có.
+    const colFilter = buildColumnFilter(page.filters ?? []);
+    const hasColFilter = Object.keys(colFilter).length > 0;
+    const filter: Record<string, unknown> =
+      searchFilter && hasColFilter
+        ? { $and: [searchFilter, colFilter] }
+        : searchFilter ?? colFilter;
 
-    // Có filter thì đếm chính xác; không thì dùng ước lượng (nhanh).
-    const total = search ? await col.countDocuments(filter) : await col.estimatedDocumentCount();
+    // Có điều kiện (search hoặc filter cột) thì đếm chính xác; không thì ước lượng (nhanh).
+    const total =
+      search || hasColFilter ? await col.countDocuments(filter) : await col.estimatedDocumentCount();
     const sort = page.orderBy?.reduce<Record<string, 1 | -1>>((acc, o) => {
       acc[o.column] = o.dir === 'desc' ? -1 : 1;
       return acc;
@@ -456,6 +465,45 @@ function coerceImportedId(v: unknown): unknown {
   const unquoted =
     v.length >= 2 && v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
   return /^[a-fA-F0-9]{24}$/.test(unquoted) ? new ObjectId(unquoted) : unquoted;
+}
+
+/** Coerce giá trị filter: số round-trip -> number, "true"/"false" -> boolean, còn lại giữ chuỗi. */
+function coerceFilterValue(v: string | undefined): unknown {
+  if (v === undefined) return v;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  if (v !== '' && Number.isFinite(n) && String(n) === v) return n;
+  return v;
+}
+
+/** Dựng fragment filter Mongo từ ColumnFilter[]; trả {} nếu rỗng. */
+function buildColumnFilter(filters: ColumnFilter[]): Record<string, unknown> {
+  const clauses: Record<string, unknown>[] = [];
+  for (const f of filters) {
+    const col = f.column;
+    // _id với eq/ne: dựng ObjectId nếu là hex 24 ký tự (dùng lại coerceImportedId).
+    const raw =
+      col === '_id' && (f.op === 'eq' || f.op === 'ne')
+        ? coerceImportedId(f.value)
+        : coerceFilterValue(f.value);
+    switch (f.op) {
+      case 'eq': clauses.push({ [col]: raw }); break;
+      case 'ne': clauses.push({ [col]: { $ne: raw } }); break;
+      case 'gt': clauses.push({ [col]: { $gt: raw } }); break;
+      case 'gte': clauses.push({ [col]: { $gte: raw } }); break;
+      case 'lt': clauses.push({ [col]: { $lt: raw } }); break;
+      case 'lte': clauses.push({ [col]: { $lte: raw } }); break;
+      case 'like':
+        clauses.push({
+          [col]: { $regex: String(f.value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
+        });
+        break;
+      case 'isNull': clauses.push({ [col]: null }); break;
+      case 'isNotNull': clauses.push({ [col]: { $ne: null } }); break;
+    }
+  }
+  return clauses.length ? { $and: clauses } : {};
 }
 
 /** Đoán kiểu hiển thị của một giá trị BSON. */
