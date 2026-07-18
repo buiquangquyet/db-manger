@@ -14,7 +14,7 @@ import type {
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentPg } from './sql-util';
+import { quoteIdentPg, buildColumnFilterClauses } from './sql-util';
 
 export class PostgresAdapter implements DatabaseAdapter {
   readonly kind = 'postgres' as const;
@@ -141,26 +141,38 @@ export class PostgresAdapter implements DatabaseAdapter {
           page.orderBy.map((o) => `${quoteIdentPg(o.column)} ${o.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
         : '';
 
-    // Tìm kiếm: ILIKE (không phân biệt hoa/thường) trên mọi cột, ép TEXT để bắt cả số/ngày.
-    let where = '';
-    const whereParams: unknown[] = [];
+    // Param dùng chung cho search + filter; PG đánh số $1,$2,...
+    const params: unknown[] = [];
+    const add = (v: unknown): string => {
+      params.push(v);
+      return `$${params.length}`;
+    };
+
+    const groups: string[] = [];
     const search = page.search?.trim();
     if (search) {
       const cols = await this.columnNames(schema, target.name);
       if (cols.length) {
-        where =
-          ' WHERE ' + cols.map((c, i) => `CAST(${quoteIdentPg(c)} AS TEXT) ILIKE $${i + 1}`).join(' OR ');
-        cols.forEach(() => whereParams.push(`%${search}%`));
+        groups.push(
+          '(' + cols.map((c) => `CAST(${quoteIdentPg(c)} AS TEXT) ILIKE ${add(`%${search}%`)}`).join(' OR ') + ')',
+        );
       }
     }
-    const n = whereParams.length;
+    groups.push(
+      ...buildColumnFilterClauses(page.filters ?? [], {
+        quote: quoteIdentPg,
+        textCast: (e) => `CAST(${e} AS TEXT)`,
+        likeOp: 'ILIKE',
+      }, add),
+    );
+    const where = groups.length ? ' WHERE ' + groups.join(' AND ') : '';
 
-    const countRes = await this.db().query(`SELECT COUNT(*)::int AS c FROM ${qualified}${where}`, whereParams);
+    const countRes = await this.db().query(`SELECT COUNT(*)::int AS c FROM ${qualified}${where}`, params);
     const total = countRes.rows[0]?.c ?? 0;
 
     const res = await this.db().query(
-      `SELECT * FROM ${qualified}${where}${order} LIMIT $${n + 1} OFFSET $${n + 2}`,
-      [...whereParams, page.limit, page.offset],
+      `SELECT * FROM ${qualified}${where}${order} LIMIT ${add(page.limit)} OFFSET ${add(page.offset)}`,
+      params,
     );
 
     const pks = await this.primaryKeys(schema, target.name);
