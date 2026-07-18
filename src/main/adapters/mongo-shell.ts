@@ -17,9 +17,24 @@ const { Long, Int32, Decimal128, Binary, Timestamp, UUID } = BSON;
 export function evalMongoShell(db: Db, expr: string): Promise<unknown> {
   // Bỏ dấu ; ở cuối để bọc trong ngoặc không lỗi cú pháp.
   const clean = expr.trim().replace(/;+\s*$/, '');
+  if (!clean) {
+    return Promise.reject(
+      new Error('Mongo Shell: hãy nhập một biểu thức, ví dụ db.users.find({}).limit(10)'),
+    );
+  }
+
+  // Bọc db bằng Proxy để cú pháp mongosh `db.<collection>` trả về collection tương ứng;
+  // các method sẵn có của Db (command, aggregate, admin, listCollections...) vẫn dùng bình
+  // thường. Lưu ý: collection trùng tên method của Db (vd "command") sẽ bị method che.
+  const dbProxy = new Proxy(db, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && !(prop in target)) return target.collection(prop);
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 
   const sandbox: Record<string, unknown> = {
-    db,
+    db: dbProxy,
     // Dùng Date/RegExp của realm chính để instanceof phía driver hoạt động đúng.
     Date,
     RegExp,
@@ -36,7 +51,16 @@ export function evalMongoShell(db: Db, expr: string): Promise<unknown> {
 
   const context = vm.createContext(sandbox);
   // Bọc trong async IIFE để await được kết quả bên trong biểu thức nếu cần.
-  const script = new vm.Script(`(async () => (${clean}))()`, { filename: 'mongo-shell.js' });
+  // Lỗi cú pháp (biểu thức rỗng còn sót, comment ở cuối, nhiều câu lệnh...) được gói lại
+  // thành thông điệp tiếng Việt gọn thay vì SyntaxError JS thô.
+  let script: vm.Script;
+  try {
+    script = new vm.Script(`(async () => (${clean}))()`, { filename: 'mongo-shell.js' });
+  } catch (err) {
+    return Promise.reject(
+      new Error(`Mongo Shell: biểu thức không hợp lệ (chỉ hỗ trợ một biểu thức). ${(err as Error).message}`),
+    );
+  }
   // timeout chỉ chặn phần đồng bộ (parse/tạo cursor); I/O DB có timeout riêng của driver.
   return script.runInContext(context, { timeout: 15000 }) as Promise<unknown>;
 }
