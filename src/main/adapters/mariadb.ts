@@ -14,7 +14,7 @@ import type {
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentMysql } from './sql-util';
+import { quoteIdentMysql, buildColumnFilterClauses } from './sql-util';
 
 export class MariaDbAdapter implements DatabaseAdapter {
   readonly kind = 'mariadb' as const;
@@ -27,6 +27,7 @@ export class MariaDbAdapter implements DatabaseAdapter {
     documentEdit: false,
     alterStructure: true,
     manageObjects: true,
+    columnFilter: true,
   };
 
   private pool: mysql.Pool | null = null;
@@ -150,25 +151,39 @@ export class MariaDbAdapter implements DatabaseAdapter {
           page.orderBy.map((o) => `${quoteIdentMysql(o.column)} ${o.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
         : '';
 
-    // Tìm kiếm: LIKE trên mọi cột (ép CHAR để bắt cả số/ngày). Tham số hóa để an toàn.
-    let where = '';
-    const whereParams: unknown[] = [];
+    // `params` chia sẻ giữa count và select — count PHẢI chạy TRƯỚC khi thêm LIMIT/OFFSET qua
+    // add(), nếu không thứ tự '?' sẽ lệch. Đừng đảo thứ tự hai truy vấn.
+    const params: unknown[] = [];
+    const add = (v: unknown): string => {
+      params.push(v);
+      return '?';
+    };
+
+    const groups: string[] = [];
     const search = page.search?.trim();
     if (search) {
       const cols = await this.columnNames(db, target.name);
       if (cols.length) {
-        const like = `%${search}%`;
-        where = ' WHERE ' + cols.map((c) => `CAST(${quoteIdentMysql(c)} AS CHAR) LIKE ?`).join(' OR ');
-        cols.forEach(() => whereParams.push(like));
+        groups.push(
+          '(' + cols.map((c) => `CAST(${quoteIdentMysql(c)} AS CHAR) LIKE ${add(`%${search}%`)}`).join(' OR ') + ')',
+        );
       }
     }
+    groups.push(
+      ...buildColumnFilterClauses(page.filters ?? [], {
+        quote: quoteIdentMysql,
+        textCast: (e) => `CAST(${e} AS CHAR)`,
+        likeOp: 'LIKE',
+      }, add),
+    );
+    const where = groups.length ? ' WHERE ' + groups.join(' AND ') : '';
 
-    const [countRows] = await this.db().query(`SELECT COUNT(*) AS c FROM ${qualified}${where}`, whereParams);
+    const [countRows] = await this.db().query(`SELECT COUNT(*) AS c FROM ${qualified}${where}`, params);
     const total = Number((countRows as { c: number }[])[0]?.c ?? 0);
 
     const [rows, fields] = await this.db().query(
-      `SELECT * FROM ${qualified}${where}${order} LIMIT ? OFFSET ?`,
-      [...whereParams, page.limit, page.offset],
+      `SELECT * FROM ${qualified}${where}${order} LIMIT ${add(page.limit)} OFFSET ${add(page.offset)}`,
+      params,
     );
 
     const pks = await this.primaryKeys(db, target.name);

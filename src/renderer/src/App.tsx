@@ -100,6 +100,7 @@ export default function App() {
               target={target}
               inlineEdit={session.capabilities.inlineEdit}
               documentEdit={session.capabilities.documentEdit}
+              columnFilter={session.capabilities.columnFilter}
             />
           ) : (
             needTarget
@@ -164,7 +165,7 @@ function queryPlaceholder(cap: Capabilities): string {
     case 'relational':
       return 'SELECT * FROM ...';
     case 'document':
-      return '{"find":"users","limit":10}';
+      return 'db.users.find({}).limit(10)';
     case 'keyvalue':
       return 'GET my-key';
   }

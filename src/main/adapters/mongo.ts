@@ -1,9 +1,11 @@
 import { MongoClient, ObjectId, BSON } from 'mongodb';
+import { evalMongoShell } from './mongo-shell';
 // mongodb 6.x không export EJSON ở top-level module — chỉ có qua namespace BSON.
 // Dùng lại BSON.EJSON để tránh thêm dependency 'bson' riêng.
 const { EJSON } = BSON;
 import type {
   Capabilities,
+  ColumnFilter,
   ConnectionConfig,
   DataTarget,
   DatabaseAdapter,
@@ -30,6 +32,7 @@ export class MongoAdapter implements DatabaseAdapter {
     alterStructure: false,
     // Cho phép tạo/xóa/đổi tên collection & xóa database.
     manageObjects: true,
+    columnFilter: true,
   };
 
   private client: MongoClient | null = null;
@@ -136,18 +139,26 @@ export class MongoAdapter implements DatabaseAdapter {
     if (!database) throw new Error('Thiếu tên database cho MongoDB');
     const col = this.c().db(database).collection(target.name);
 
-    // Tìm kiếm: regex (không phân biệt hoa/thường) trên các field lấy mẫu từ 1 document.
-    let filter: Record<string, unknown> = {};
+    // Search toàn bảng (regex mọi field lấy mẫu).
+    let searchFilter: Record<string, unknown> | null = null;
     const search = page.search?.trim();
     if (search) {
       const sample = await col.findOne({});
       const keys = sample ? Object.keys(sample) : [];
       const rx = { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-      if (keys.length) filter = { $or: keys.map((k) => ({ [k]: rx })) };
+      if (keys.length) searchFilter = { $or: keys.map((k) => ({ [k]: rx })) };
     }
+    // Lọc theo cột (AND). Kết hợp với search bằng $and khi cả hai đều có.
+    const colFilter = buildColumnFilter(page.filters ?? []);
+    const hasColFilter = Object.keys(colFilter).length > 0;
+    const filter: Record<string, unknown> =
+      searchFilter && hasColFilter
+        ? { $and: [searchFilter, colFilter] }
+        : searchFilter ?? colFilter;
 
-    // Có filter thì đếm chính xác; không thì dùng ước lượng (nhanh).
-    const total = search ? await col.countDocuments(filter) : await col.estimatedDocumentCount();
+    // Có điều kiện (search hoặc filter cột) thì đếm chính xác; không thì ước lượng (nhanh).
+    const total =
+      search || hasColFilter ? await col.countDocuments(filter) : await col.estimatedDocumentCount();
     const sort = page.orderBy?.reduce<Record<string, 1 | -1>>((acc, o) => {
       acc[o.column] = o.dir === 'desc' ? -1 : 1;
       return acc;
@@ -183,44 +194,36 @@ export class MongoAdapter implements DatabaseAdapter {
     return { columns, rows, total };
   }
 
-  /** Chạy lệnh dạng: db.<collection>.find({...}) hoặc runCommand JSON. MVP: hỗ trợ find/aggregate cơ bản. */
+  /**
+   * Chạy ô Mongo Shell. Hai chế độ (nhánh không chồng lấn theo ký tự đầu):
+   * - Bắt đầu bằng `{` → JSON `runCommand` (tương thích ngược), vd {"find":"users","limit":10}.
+   * - Ngược lại → biểu thức mongosh, vd db.users.find({}).sort({_id:-1}).limit(10).
+   */
   async executeRaw(query: string, database?: string): Promise<QueryResult> {
     const started = process.hrtime.bigint();
     const db = this.c().db(database ?? this.config.database);
-
-    // MVP: cho phép chạy runCommand bằng JSON thuần, ví dụ {"find":"users","limit":10}
     const trimmed = query.trim();
-    if (!trimmed.startsWith('{')) {
-      throw new Error(
-        'MVP MongoShell: hãy nhập lệnh runCommand dạng JSON, ví dụ {"find":"users","limit":10}',
-      );
-    }
-    const command = JSON.parse(trimmed);
-    const result = await db.command(command);
-    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
 
-    // Kết quả find/aggregate nằm trong cursor.firstBatch.
-    const batch: unknown[] | undefined = result?.cursor?.firstBatch;
-    if (Array.isArray(batch)) {
-      const colSet = new Set<string>();
-      for (const d of batch) for (const k of Object.keys(d as object)) colSet.add(k);
-      return {
-        rowSet: {
-          columns: [...colSet].map((name) => ({ name })),
-          rows: batch.map((d) => {
-            const out: Record<string, unknown> = {};
-            for (const k of colSet) {
-              const v = (d as Record<string, unknown>)[k];
-              out[k] = v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
-            }
-            return out;
-          }),
-          total: batch.length,
-        },
-        durationMs,
-      };
+    // Chế độ JSON runCommand (giữ nguyên hành vi cũ).
+    if (trimmed.startsWith('{')) {
+      const command = JSON.parse(trimmed);
+      const result = await db.command(command);
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      const batch: unknown[] | undefined = result?.cursor?.firstBatch;
+      if (Array.isArray(batch)) {
+        return { rowSet: docsToRowSet(batch), durationMs };
+      }
+      return { message: JSON.stringify(result), durationMs };
     }
-    return { message: JSON.stringify(result), durationMs };
+
+    // Chế độ biểu thức shell.
+    let value = await evalMongoShell(db, trimmed);
+    // find/aggregate trả cursor — materialize thành mảng.
+    if (value && typeof (value as { toArray?: unknown }).toArray === 'function') {
+      value = await (value as { toArray(): Promise<unknown[]> }).toArray();
+    }
+    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    return formatShellValue(value, durationMs);
   }
 
   async getStructure(target: DataTarget): Promise<TableStructure> {
@@ -358,7 +361,10 @@ export class MongoAdapter implements DatabaseAdapter {
     const doc: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(values)) {
       const coerced = coerceCsvValue(v);
-      if (coerced !== undefined) doc[k] = coerced;
+      if (coerced === undefined) continue;
+      // _id được export dưới dạng hex trần (ObjectId) hoặc có thể dính nháy kép từ file nguồn;
+      // dựng lại ObjectId để round-trip không biến _id thành chuỗi (khớp toId khi xem/sửa/xóa).
+      doc[k] = k === '_id' ? coerceImportedId(coerced) : coerced;
     }
     await this.c().db(database).collection(target.name).insertOne(doc as never);
   }
@@ -374,6 +380,66 @@ export class MongoAdapter implements DatabaseAdapter {
   }
 }
 
+/** Dựng RowSet từ mảng document: hợp nhất key thành cột, ObjectId→hex, object lồng→JSON. */
+function docsToRowSet(docs: unknown[]): RowSet {
+  // Giá trị nguyên thủy (vd distinct) được bọc dưới cột "value".
+  const objs = docs.map((d) =>
+    d !== null && typeof d === 'object' && !Array.isArray(d)
+      ? (d as Record<string, unknown>)
+      : { value: d },
+  );
+  const colSet = new Set<string>();
+  for (const d of objs) for (const k of Object.keys(d)) colSet.add(k);
+  const columns = [...colSet].map((name) => ({ name, isPrimaryKey: name === '_id' }));
+  const rows = objs.map((d) => {
+    const out: Record<string, unknown> = {};
+    for (const k of colSet) {
+      const v = d[k];
+      out[k] =
+        v instanceof ObjectId
+          ? v.toHexString()
+          : v !== null && typeof v === 'object'
+            ? JSON.stringify(v)
+            : v;
+    }
+    return out;
+  });
+  return { columns, rows, total: rows.length };
+}
+
+/** Chuẩn hóa giá trị driver trả về (sau khi đã materialize cursor) thành QueryResult. */
+function formatShellValue(value: unknown, durationMs: number): QueryResult {
+  // Mảng document (find/aggregate/distinct) → bảng.
+  if (Array.isArray(value)) return { rowSet: docsToRowSet(value), durationMs };
+
+  // Kết quả lệnh ghi: mọi CRUD result đều có cờ `acknowledged`.
+  if (value !== null && typeof value === 'object' && 'acknowledged' in value) {
+    return { message: formatWriteResult(value as Record<string, unknown>), durationMs };
+  }
+
+  // findOne trả 1 document → bảng 1 dòng.
+  if (value !== null && typeof value === 'object') {
+    return { rowSet: docsToRowSet([value]), durationMs };
+  }
+
+  // null (findOne không khớp) hoặc scalar (countDocuments...) → thông điệp.
+  return { message: value === null ? '(null)' : String(value), durationMs };
+}
+
+/** Tóm tắt kết quả lệnh ghi theo các field có mặt. */
+function formatWriteResult(r: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof r.insertedCount === 'number') parts.push(`đã thêm ${r.insertedCount}`);
+  if (r.insertedId != null) parts.push(`insertedId: ${String(r.insertedId)}`);
+  if (typeof r.matchedCount === 'number') parts.push(`khớp ${r.matchedCount}`);
+  if (typeof r.modifiedCount === 'number') parts.push(`sửa ${r.modifiedCount}`);
+  if (typeof r.upsertedCount === 'number' && r.upsertedCount > 0)
+    parts.push(`upsert ${r.upsertedCount}`);
+  if (r.upsertedId != null) parts.push(`upsertedId: ${String(r.upsertedId)}`);
+  if (typeof r.deletedCount === 'number') parts.push(`đã xóa ${r.deletedCount}`);
+  return parts.length ? parts.join(', ') : JSON.stringify(r);
+}
+
 /**
  * Suy kiểu một giá trị khi import. Chỉ đụng tới chuỗi (từ CSV); giá trị đã có kiểu (JSON) giữ nguyên.
  * Trả về `undefined` để ra hiệu "bỏ field" (ô trống).
@@ -387,6 +453,57 @@ function coerceCsvValue(v: unknown): unknown {
   const n = Number(v);
   if (Number.isFinite(n) && String(n) === v) return n;
   return v;
+}
+
+/**
+ * Chuẩn hóa `_id` khi import CSV/JSON. Bỏ đúng 1 lớp nháy kép bao ngoài nếu file nguồn lỡ kèm
+ * (vd `"69a9…18c"` -> `69a9…18c`), rồi dựng lại ObjectId khi là chuỗi hex 24 ký tự. Các _id
+ * kiểu khác (chuỗi thường, số...) giữ nguyên.
+ */
+function coerceImportedId(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const unquoted =
+    v.length >= 2 && v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v;
+  return /^[a-fA-F0-9]{24}$/.test(unquoted) ? new ObjectId(unquoted) : unquoted;
+}
+
+/** Coerce giá trị filter: số round-trip -> number, "true"/"false" -> boolean, còn lại giữ chuỗi. */
+function coerceFilterValue(v: string | undefined): unknown {
+  if (v === undefined) return v;
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  if (v !== '' && Number.isFinite(n) && String(n) === v) return n;
+  return v;
+}
+
+/** Dựng fragment filter Mongo từ ColumnFilter[]; trả {} nếu rỗng. */
+function buildColumnFilter(filters: ColumnFilter[]): Record<string, unknown> {
+  const clauses: Record<string, unknown>[] = [];
+  for (const f of filters) {
+    const col = f.column;
+    // _id với eq/ne: dựng ObjectId nếu là hex 24 ký tự (dùng lại coerceImportedId).
+    const raw =
+      col === '_id' && (f.op === 'eq' || f.op === 'ne')
+        ? coerceImportedId(f.value)
+        : coerceFilterValue(f.value);
+    switch (f.op) {
+      case 'eq': clauses.push({ [col]: raw }); break;
+      case 'ne': clauses.push({ [col]: { $ne: raw } }); break;
+      case 'gt': clauses.push({ [col]: { $gt: raw } }); break;
+      case 'gte': clauses.push({ [col]: { $gte: raw } }); break;
+      case 'lt': clauses.push({ [col]: { $lt: raw } }); break;
+      case 'lte': clauses.push({ [col]: { $lte: raw } }); break;
+      case 'like':
+        clauses.push({
+          [col]: { $regex: String(f.value ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
+        });
+        break;
+      case 'isNull': clauses.push({ [col]: null }); break;
+      case 'isNotNull': clauses.push({ [col]: { $ne: null } }); break;
+    }
+  }
+  return clauses.length ? { $and: clauses } : {};
 }
 
 /** Đoán kiểu hiển thị của một giá trị BSON. */
