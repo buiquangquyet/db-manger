@@ -31,6 +31,7 @@ export class MongoAdapter implements DatabaseAdapter {
     alterStructure: false,
     // Cho phép tạo/xóa/đổi tên collection & xóa database.
     manageObjects: true,
+    columnFilter: true,
   };
 
   private client: MongoClient | null = null;

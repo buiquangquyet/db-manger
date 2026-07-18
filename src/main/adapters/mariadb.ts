@@ -27,6 +27,7 @@ export class MariaDbAdapter implements DatabaseAdapter {
     documentEdit: false,
     alterStructure: true,
     manageObjects: true,
+    columnFilter: true,
   };
 
   private pool: mysql.Pool | null = null;

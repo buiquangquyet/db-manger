@@ -27,6 +27,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     documentEdit: false,
     alterStructure: true,
     manageObjects: true,
+    columnFilter: true,
   };
 
   private pool: pg.Pool | null = null;

@@ -24,6 +24,7 @@ export class RedisAdapter implements DatabaseAdapter {
     documentEdit: false,
     alterStructure: false,
     manageObjects: false,
+    columnFilter: false,
   };
 
   private client: Redis | null = null;

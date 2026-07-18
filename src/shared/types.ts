@@ -70,6 +70,8 @@ export interface Capabilities {
   alterStructure: boolean;
   /** Cho phép tạo/xóa/đổi tên bảng & xóa database. */
   manageObjects: boolean;
+  /** Cho phép lọc theo giá trị từng cột ở header bảng dữ liệu. */
+  columnFilter: boolean;
 }
 
 /** Một node trong cây sidebar (database → bảng/collection/key…). */
@@ -108,6 +110,17 @@ export interface DataTarget {
   name: string;
 }
 
+/** Toán tử lọc theo cột. */
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'like' | 'isNull' | 'isNotNull';
+
+/** Một điều kiện lọc trên một cột. */
+export interface ColumnFilter {
+  column: string;
+  op: FilterOp;
+  /** Không dùng cho isNull/isNotNull. */
+  value?: string;
+}
+
 export interface PageRequest {
   offset: number;
   limit: number;
@@ -115,6 +128,8 @@ export interface PageRequest {
   orderBy?: { column: string; dir: 'asc' | 'desc' }[];
   /** Tìm kiếm phía server: SQL -> LIKE mọi cột, Mongo -> regex, Redis -> MATCH pattern. */
   search?: string;
+  /** Lọc theo từng cột (AND với nhau và với `search`). */
+  filters?: ColumnFilter[];
 }
 
 /** Mô tả một cột trong kết quả. */
