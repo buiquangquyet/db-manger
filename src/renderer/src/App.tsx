@@ -100,6 +100,7 @@ export default function App() {
               target={target}
               inlineEdit={session.capabilities.inlineEdit}
               documentEdit={session.capabilities.documentEdit}
+              columnFilter={session.capabilities.columnFilter}
             />
           ) : (
             needTarget

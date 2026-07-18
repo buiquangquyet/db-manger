@@ -5,8 +5,9 @@ import { Button, Dropdown, Input, Modal, Pagination, Space, Spin, message } from
 import { DeleteOutlined, DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
-import type { DataTarget, IoFormat, RowSet } from '@shared/types';
+import type { ColumnFilter, DataTarget, IoFormat, RowSet } from '@shared/types';
 import { AddRowModal } from './AddRowModal';
+import { ColumnFilterHeader, type FilterHeaderContext } from './ColumnFilterHeader';
 import { DocumentModal, type DocumentModalMode } from './DocumentModal';
 
 const PAGE_SIZE = 100;
@@ -18,9 +19,11 @@ interface Props {
   inlineEdit: boolean;
   /** Loại DB dùng luồng document JSON (MongoDB) hay không. */
   documentEdit: boolean;
+  /** Loại DB hỗ trợ lọc theo cột ở header hay không. */
+  columnFilter: boolean;
 }
 
-export function DataGridView({ connectionId, target, inlineEdit, documentEdit }: Props) {
+export function DataGridView({ connectionId, target, inlineEdit, documentEdit, columnFilter }: Props) {
   const [rowSet, setRowSet] = useState<RowSet | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -29,6 +32,9 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
   const [selectedCount, setSelectedCount] = useState(0);
   const [orderBy, setOrderBy] = useState<{ column: string; dir: 'asc' | 'desc' }[]>([]);
   const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState<ColumnFilter[]>([]);
+  const filtersRef = useRef<ColumnFilter[]>([]);
+  filtersRef.current = filters;
   const gridApiRef = useRef<GridApi | null>(null);
 
   const load = useCallback(
@@ -40,6 +46,7 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
           limit: PAGE_SIZE,
           orderBy: orderBy.length ? orderBy : undefined,
           search: search || undefined,
+          filters: filtersRef.current.length ? filtersRef.current : undefined,
         });
         setRowSet(rs);
         setSelectedCount(0);
@@ -52,6 +59,21 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
     [connectionId, target, orderBy, search],
   );
 
+  const getFilter = useCallback((c: string) => filtersRef.current.find((f) => f.column === c), []);
+  const setFilter = useCallback(
+    (c: string, cond: ColumnFilter | null) => {
+      const next = filtersRef.current.filter((f) => f.column !== c);
+      if (cond) next.push(cond);
+      filtersRef.current = next;
+      setFilters(next);
+      setPage(1);
+      void load(1);
+      gridApiRef.current?.refreshHeader();
+    },
+    [load],
+  );
+  const filterContext = useMemo<FilterHeaderContext>(() => ({ getFilter, setFilter }), [getFilter, setFilter]);
+
   // Ánh xạ trạng thái sort của ag-grid -> orderBy gửi xuống server (hỗ trợ multi-sort).
   const onSortChanged = useCallback(() => {
     const state = gridApiRef.current?.getColumnState() ?? [];
@@ -61,6 +83,12 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
       .map((s) => ({ column: s.colId, dir: s.sort as 'asc' | 'desc' }));
     setOrderBy(next);
   }, []);
+
+  // Xóa filter khi chuyển bảng/collection (tránh áp filter của bảng cũ).
+  useEffect(() => {
+    filtersRef.current = [];
+    setFilters([]);
+  }, [target]);
 
   // Reset về trang 1 mỗi khi đổi bảng/collection.
   useEffect(() => {
@@ -98,6 +126,7 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
       resizable: true,
       // Không cho sửa cột khóa chính; chỉ sửa inline ở luồng SQL.
       editable: canInlineEdit && !c.isPrimaryKey,
+      ...(columnFilter ? { headerComponent: ColumnFilterHeader } : {}),
       valueFormatter: (p) =>
         p.value === null || p.value === undefined ? '' : typeof p.value === 'object' ? JSON.stringify(p.value) : String(p.value),
     }));
@@ -115,7 +144,7 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
       });
     }
     return cols;
-  }, [rowSet?.columns, canInlineEdit, canDelete]);
+  }, [rowSet?.columns, canInlineEdit, canDelete, columnFilter]);
 
   const onCellValueChanged = useCallback(
     async (e: CellValueChangedEvent) => {
@@ -273,6 +302,7 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit }:
           <AgGridReact
             rowData={rowSet?.rows ?? []}
             columnDefs={columnDefs}
+            context={filterContext}
             // filter=false: lọc thực hiện phía server qua ô tìm kiếm (client chỉ có 1 trang).
             defaultColDef={{ minWidth: 120, filter: false }}
             animateRows={false}
