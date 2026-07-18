@@ -151,6 +151,8 @@ export class MariaDbAdapter implements DatabaseAdapter {
           page.orderBy.map((o) => `${quoteIdentMysql(o.column)} ${o.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
         : '';
 
+    // `params` chia sẻ giữa count và select — count PHẢI chạy TRƯỚC khi thêm LIMIT/OFFSET qua
+    // add(), nếu không thứ tự '?' sẽ lệch. Đừng đảo thứ tự hai truy vấn.
     const params: unknown[] = [];
     const add = (v: unknown): string => {
       params.push(v);
