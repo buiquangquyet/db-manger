@@ -353,6 +353,23 @@ export class MariaDbAdapter implements DatabaseAdapter {
     );
   }
 
+  async insertRows(target: DataTarget, rows: Record<string, unknown>[]): Promise<void> {
+    if (rows.length === 0) return;
+    const cols = Object.keys(rows[0]);
+    if (cols.length === 0) throw new Error('Không có cột nào để ghi.');
+    const db = target.database ?? this.config.database;
+    const qualified = db ? `${quoteIdentMysql(db)}.${quoteIdentMysql(target.name)}` : quoteIdentMysql(target.name);
+    const colList = cols.map(quoteIdentMysql).join(', ');
+    // Chunk theo số placeholder để không vượt max_allowed_packet / giới hạn tham số.
+    const chunkSize = Math.max(1, Math.min(500, Math.floor(2000 / cols.length)));
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const groups = chunk.map(() => `(${cols.map(() => '?').join(', ')})`).join(', ');
+      const params = chunk.flatMap((r) => cols.map((c) => r[c]));
+      await this.db().query(`INSERT INTO ${qualified} (${colList}) VALUES ${groups}`, params);
+    }
+  }
+
   async deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void> {
     const keys = Object.keys(rowKey);
     if (keys.length === 0) throw new Error('Bảng không có khóa chính — không thể xóa an toàn.');

@@ -408,6 +408,23 @@ export class PostgresAdapter implements DatabaseAdapter {
     );
   }
 
+  async insertRows(target: DataTarget, rows: Record<string, unknown>[]): Promise<void> {
+    if (rows.length === 0) return;
+    const cols = Object.keys(rows[0]);
+    if (cols.length === 0) throw new Error('Không có cột nào để ghi.');
+    const schema = target.schema ?? 'public';
+    const qualified = `${quoteIdentPg(schema)}.${quoteIdentPg(target.name)}`;
+    const colList = cols.map(quoteIdentPg).join(', ');
+    const chunkSize = Math.max(1, Math.min(500, Math.floor(2000 / cols.length)));
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      let p = 0;
+      const groups = chunk.map(() => `(${cols.map(() => `$${(p += 1)}`).join(', ')})`).join(', ');
+      const params = chunk.flatMap((r) => cols.map((c) => r[c]));
+      await this.db().query(`INSERT INTO ${qualified} (${colList}) VALUES ${groups}`, params);
+    }
+  }
+
   async deleteRow(target: DataTarget, rowKey: Record<string, unknown>): Promise<void> {
     const keys = Object.keys(rowKey);
     if (keys.length === 0) throw new Error('Bảng không có khóa chính — không thể xóa an toàn.');
