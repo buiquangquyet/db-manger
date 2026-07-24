@@ -70,7 +70,7 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
     }
   }
 
-  async function start(): Promise<void> {
+  async function runTransfer(): Promise<void> {
     if (!destConnId) return;
     const dest = dbOptions.find((o) => o.id === destDb);
     setStep(2);
@@ -99,7 +99,23 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
     }
   }
 
-  const pct = progress && progress.tableCount ? Math.round((progress.tableIndex / progress.tableCount) * 100) : 0;
+  function start(): void {
+    if (!destConnId) return;
+    if (writeMode === 'truncateInsert') {
+      Modal.confirm({
+        title: 'Xóa sạch dữ liệu các bảng đích rồi nạp lại?',
+        content: 'Toàn bộ dữ liệu hiện có trong các bảng đích đã chọn sẽ bị xóa trước khi nạp dữ liệu mới. Không thể hoàn tác.',
+        okText: 'Xóa & nạp',
+        okType: 'danger',
+        cancelText: 'Hủy',
+        onOk: () => runTransfer(),
+      });
+      return;
+    }
+    void runTransfer();
+  }
+
+  const pct = summary ? 100 : progress && progress.tableCount ? Math.round((progress.tableIndex / progress.tableCount) * 100) : 0;
 
   return (
     <Modal
