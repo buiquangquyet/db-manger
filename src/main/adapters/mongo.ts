@@ -346,6 +346,27 @@ export class MongoAdapter implements DatabaseAdapter {
     await col.insertOne(doc as never);
   }
 
+  async readDocumentsRaw(
+    target: DataTarget,
+    page: { offset: number; limit: number },
+  ): Promise<string[]> {
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const docs = await col.find({}).skip(page.offset).limit(page.limit).toArray();
+    // Canonical EJSON (relaxed:false): giữ nguyên kiểu BSON (Date, Long, ObjectId, nested…).
+    return docs.map((d) => EJSON.stringify(d, undefined, 0, { relaxed: false }));
+  }
+
+  async insertDocumentsRaw(target: DataTarget, ejsonDocs: string[]): Promise<void> {
+    if (ejsonDocs.length === 0) return;
+    const database = target.database ?? this.config.database;
+    if (!database) throw new Error('Thiếu tên database cho MongoDB');
+    const col = this.c().db(database).collection(target.name);
+    const docs = ejsonDocs.map((s) => EJSON.parse(s, { relaxed: false }) as Record<string, unknown>);
+    await col.insertMany(docs as never[]);
+  }
+
   async updateCell(): Promise<void> {
     throw new Error('Sửa inline cho MongoDB chưa được hỗ trợ — dùng ô Mongo Shell.');
   }
