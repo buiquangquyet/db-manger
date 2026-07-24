@@ -22,7 +22,9 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
   const [step, setStep] = useState(0);
   const [destConnId, setDestConnId] = useState<string>();
   const [destDb, setDestDb] = useState<string>();
-  const [dbOptions, setDbOptions] = useState<{ database?: string; schema?: string; label: string }[]>([]);
+  const [dbOptions, setDbOptions] = useState<
+    { id: string; database?: string; schema?: string; label: string }[]
+  >([]);
   const [tables, setTables] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [createStructure, setCreateStructure] = useState(true);
@@ -57,11 +59,11 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
       // node database/schema có meta.database / meta.schema
       const opts = roots
         .filter((n) => n.type === 'database' || n.type === 'schema')
-        .map((n) => ({
-          database: (n.meta?.database as string) ?? n.label,
-          schema: n.meta?.schema as string | undefined,
-          label: n.label,
-        }));
+        .map((n, index) => {
+          const database = (n.meta?.database as string) ?? n.label;
+          const schema = n.meta?.schema as string | undefined;
+          return { id: `${database ?? ''}::${schema ?? ''}::${index}`, database, schema, label: n.label };
+        });
       setDbOptions(opts);
     } catch (e) {
       message.error(`Không mở được kết nối đích: ${(e as Error).message}`);
@@ -70,7 +72,7 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
 
   async function start(): Promise<void> {
     if (!destConnId) return;
-    const dest = dbOptions.find((o) => o.label === destDb);
+    const dest = dbOptions.find((o) => o.id === destDb);
     setStep(2);
     setRunning(true);
     setSummary(null);
@@ -107,6 +109,9 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
       width={640}
       footer={null}
       destroyOnClose
+      closable={!running}
+      maskClosable={!running}
+      keyboard={!running}
     >
       <Steps current={step} size="small" style={{ marginBottom: 16 }} items={[{ title: 'Chọn đích' }, { title: 'Chọn bảng' }, { title: 'Tiến trình' }]} />
 
@@ -123,7 +128,7 @@ export function TransferModal({ open, source, connections, onClose }: Props): Re
             value={destDb}
             disabled={!destConnId}
             onChange={setDestDb}
-            options={dbOptions.map((o) => ({ value: o.label, label: o.label }))}
+            options={dbOptions.map((o) => ({ value: o.id, label: o.label }))}
           />
           <div style={{ textAlign: 'right' }}>
             <a onClick={() => destConnId && destDb && setStep(1)}>Tiếp →</a>
