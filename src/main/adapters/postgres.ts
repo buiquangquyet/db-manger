@@ -9,12 +9,13 @@ import type {
   PageRequest,
   QueryResult,
   RowSet,
+  SchemaObject,
   TableStructure,
   TableSummary,
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentPg, buildColumnFilterClauses } from './sql-util';
+import { quoteIdentPg, buildColumnFilterClauses, groupColumnsByTable } from './sql-util';
 
 export class PostgresAdapter implements DatabaseAdapter {
   readonly kind = 'postgres' as const;
@@ -360,6 +361,16 @@ export class PostgresAdapter implements DatabaseAdapter {
       )} (${ix.columns.map(quoteIdentPg).join(', ')});`;
     }
     return sql;
+  }
+
+  async getSchemaObjects(_database?: string, schema?: string): Promise<SchemaObject[]> {
+    const s = schema ?? 'public';
+    const res = await this.db().query(
+      `SELECT table_name AS t, column_name AS c FROM information_schema.columns
+       WHERE table_schema = $1 ORDER BY table_name, ordinal_position`,
+      [s],
+    );
+    return groupColumnsByTable(res.rows as { t: string; c: string }[]);
   }
 
   /** Lấy tập cột khóa chính của bảng. */

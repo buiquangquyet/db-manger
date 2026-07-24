@@ -8,7 +8,7 @@ export function quoteIdentPg(name: string): string {
   return '"' + name.replace(/"/g, '""') + '"';
 }
 
-import type { ColumnFilter } from '@shared/types';
+import type { ColumnFilter, SchemaObject } from '@shared/types';
 
 interface SqlFilterDialect {
   /** escape identifier (quoteIdentPg / quoteIdentMysql). */
@@ -45,4 +45,15 @@ export function buildColumnFilterClauses(
     clauses.push(`${col} ${SQL_CMP[f.op]} ${addParam(f.value)}`);
   }
   return clauses;
+}
+
+/** Gom các dòng {t: table, c: column} (đã ORDER BY table, ordinal) thành SchemaObject[]. */
+export function groupColumnsByTable(rows: { t: string; c: string }[]): SchemaObject[] {
+  const map = new Map<string, string[]>();
+  for (const { t, c } of rows) {
+    const cols = map.get(t);
+    if (cols) cols.push(c);
+    else map.set(t, [c]);
+  }
+  return [...map.entries()].map(([table, columns]) => ({ table, columns }));
 }

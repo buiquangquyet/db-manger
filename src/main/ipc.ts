@@ -49,6 +49,14 @@ export function registerIpc(): void {
     sessions.get(connectionId).getTableList(database, schema),
   );
 
+  ipcMain.handle(
+    IpcChannels.schemaObjects,
+    (_e, connectionId: string, database?: string, schema?: string) => {
+      const adapter = sessions.get(connectionId);
+      return adapter.getSchemaObjects ? adapter.getSchemaObjects(database, schema) : [];
+    },
+  );
+
   ipcMain.handle(IpcChannels.dataRead, (_e, connectionId: string, target: DataTarget, page: PageRequest) =>
     sessions.get(connectionId).readRows(target, page),
   );

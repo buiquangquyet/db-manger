@@ -9,12 +9,13 @@ import type {
   PageRequest,
   QueryResult,
   RowSet,
+  SchemaObject,
   TableStructure,
   TableSummary,
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentMysql, buildColumnFilterClauses } from './sql-util';
+import { quoteIdentMysql, buildColumnFilterClauses, groupColumnsByTable } from './sql-util';
 
 export class MariaDbAdapter implements DatabaseAdapter {
   readonly kind = 'mariadb' as const;
@@ -290,6 +291,16 @@ export class MariaDbAdapter implements DatabaseAdapter {
     const row = (rows as Record<string, string>[])[0] ?? {};
     // MySQL trả về cột 'Create Table' (hoặc 'Create View' cho view).
     return (row['Create Table'] ?? row['Create View'] ?? '') + ';';
+  }
+
+  async getSchemaObjects(database?: string): Promise<SchemaObject[]> {
+    const db = database ?? this.config.database;
+    const [rows] = await this.db().query(
+      `SELECT table_name AS t, column_name AS c FROM information_schema.columns
+       WHERE table_schema = ? ORDER BY table_name, ordinal_position`,
+      [db],
+    );
+    return groupColumnsByTable(rows as { t: string; c: string }[]);
   }
 
   /** Sinh mệnh đề định nghĩa cột: `name` type NULL/NOT NULL [DEFAULT ...]. */
