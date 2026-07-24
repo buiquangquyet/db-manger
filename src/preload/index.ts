@@ -8,6 +8,9 @@ import type {
   IoFormat,
   PageRequest,
   RendererApi,
+  TransferProgress,
+  TransferRequest,
+  TransferSummary,
   TreeNode,
 } from '@shared/types';
 
@@ -73,6 +76,15 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.ioSaveText, defaultName, content),
   copyTableSql: (connectionId: string, target: DataTarget, withData: boolean) =>
     ipcRenderer.invoke(IpcChannels.ioCopyTableSql, connectionId, target, withData),
+  startTransfer: (req: TransferRequest) =>
+    ipcRenderer.invoke(IpcChannels.transferStart, req),
+  cancelTransfer: (transferId: string) =>
+    ipcRenderer.invoke(IpcChannels.transferCancel, transferId),
+  onTransferProgress: (cb: (p: TransferProgress) => void) => {
+    const listener = (_event: any, progress: TransferProgress) => cb(progress);
+    ipcRenderer.on(IpcChannels.transferProgress, listener);
+    return () => ipcRenderer.removeListener(IpcChannels.transferProgress, listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

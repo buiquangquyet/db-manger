@@ -219,6 +219,50 @@ export interface ImportResult {
   cancelled?: boolean;
 }
 
+/** Yêu cầu transfer dữ liệu từ một connection nguồn sang connection đích (cùng loại). */
+export interface TransferRequest {
+  /** ID phiên transfer (renderer sinh, dùng để khớp progress & hủy). */
+  transferId: string;
+  sourceConnectionId: string;
+  /** DB/schema nguồn (bảng chọn qua `tables`). */
+  source: { database?: string; schema?: string };
+  destConnectionId: string;
+  dest: { database?: string; schema?: string };
+  /** Tên bảng/collection được chọn để copy (tên đích = tên nguồn). */
+  tables: string[];
+  /** Tạo cấu trúc ở đích nếu bảng chưa tồn tại. */
+  createStructure: boolean;
+  /** 'append' = thêm vào; 'truncateInsert' = xóa sạch rồi nạp. */
+  writeMode: 'append' | 'truncateInsert';
+}
+
+/** Tiến trình phát liên tục trong lúc transfer. */
+export interface TransferProgress {
+  transferId: string;
+  /** Chỉ số bảng đang chạy (0-based). */
+  tableIndex: number;
+  tableCount: number;
+  currentTable: string;
+  /** Số dòng đã copy của bảng hiện tại. */
+  rowsCopied: number;
+  /** Tổng số dòng nếu ước lượng được, null nếu không rõ. */
+  rowsTotal: number | null;
+}
+
+/** Kết quả transfer của một bảng. */
+export interface TransferTableResult {
+  table: string;
+  status: 'ok' | 'error' | 'cancelled' | 'skipped';
+  rows: number;
+  error?: string;
+}
+
+/** Tổng kết cả phiên transfer. */
+export interface TransferSummary {
+  results: TransferTableResult[];
+  cancelled: boolean;
+}
+
 export interface TestConnectionResult {
   ok: boolean;
   /** Thông tin server nếu kết nối được (vd version). */
@@ -295,6 +339,18 @@ export interface DatabaseAdapter {
 
   /** (Document DB) Thêm 1 document mới từ chuỗi EJSON. */
   insertDocument?(target: DataTarget, ejson: string): Promise<void>;
+
+  /**
+   * (Batch) Ghi nhiều dòng trong 1-vài lệnh INSERT.
+   * Nếu adapter không hiện thực, orchestrator fallback gọi insertRow từng dòng.
+   */
+  insertRows?(target: DataTarget, rows: Record<string, unknown>[]): Promise<void>;
+
+  /** (Document DB) Đọc raw document dạng EJSON canonical để copy giữ nguyên kiểu BSON/lồng nhau. */
+  readDocumentsRaw?(target: DataTarget, page: { offset: number; limit: number }): Promise<string[]>;
+
+  /** (Document DB) Ghi nhiều document EJSON bằng insertMany. */
+  insertDocumentsRaw?(target: DataTarget, ejsonDocs: string[]): Promise<void>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -332,6 +388,9 @@ export const IpcChannels = {
   ioImport: 'io:import',
   ioSaveText: 'io:saveText',
   ioCopyTableSql: 'io:copyTableSql',
+  transferStart: 'transfer:start',
+  transferProgress: 'transfer:progress',
+  transferCancel: 'transfer:cancel',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -384,4 +443,10 @@ export interface RendererApi {
   saveTextFile(defaultName: string, content: string): Promise<{ path?: string; cancelled?: boolean }>;
   /** Copy SQL của bảng vào clipboard: withData=true gồm cả INSERT, false chỉ DDL. */
   copyTableSql(connectionId: string, target: DataTarget, withData: boolean): Promise<{ chars: number }>;
+  /** Bắt đầu transfer; resolve khi hoàn tất, trả tổng kết. */
+  startTransfer(req: TransferRequest): Promise<TransferSummary>;
+  /** Yêu cầu hủy một phiên transfer đang chạy. */
+  cancelTransfer(transferId: string): Promise<void>;
+  /** Đăng ký nhận tiến trình; trả về hàm hủy đăng ký. */
+  onTransferProgress(cb: (p: TransferProgress) => void): () => void;
 }
