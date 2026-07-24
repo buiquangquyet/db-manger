@@ -175,6 +175,12 @@ export interface TableStructure {
   note?: string;
 }
 
+/** Bảng + danh sách cột của nó, dùng cho autocomplete SQL. */
+export interface SchemaObject {
+  table: string;
+  columns: string[];
+}
+
 /** Mô tả một cột khi thêm/sửa. `default` nhập nguyên văn (chuỗi cần kèm dấu nháy). */
 export interface ColumnSpec {
   name: string;
@@ -314,6 +320,9 @@ export interface DatabaseAdapter {
   /** Sinh câu lệnh tạo bảng (DDL) — dùng cho "copy cấu trúc". */
   getCreateStatement(target: DataTarget): Promise<string>;
 
+  /** (SQL) Lấy toàn bộ bảng + cột của một database/schema trong 1 truy vấn — cho autocomplete. */
+  getSchemaObjects?(database?: string, schema?: string): Promise<SchemaObject[]>;
+
   /** Chạy query/command tự do (SQL, mongo shell, redis command). */
   executeRaw(query: string, database?: string): Promise<QueryResult>;
 
@@ -391,6 +400,7 @@ export const IpcChannels = {
   transferStart: 'transfer:start',
   transferProgress: 'transfer:progress',
   transferCancel: 'transfer:cancel',
+  schemaObjects: 'schema:objects',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
@@ -408,6 +418,8 @@ export interface RendererApi {
   getRootNodes(connectionId: string): Promise<TreeNode[]>;
   getChildNodes(connectionId: string, node: TreeNode): Promise<TreeNode[]>;
   getTableList(connectionId: string, database?: string, schema?: string): Promise<TableSummary[]>;
+  /** (SQL) Lấy bảng + cột của database/schema cho autocomplete; [] nếu loại DB không hỗ trợ. */
+  getSchemaObjects(connectionId: string, database?: string, schema?: string): Promise<SchemaObject[]>;
   readRows(connectionId: string, target: DataTarget, page: PageRequest): Promise<RowSet>;
   getStructure(connectionId: string, target: DataTarget): Promise<TableStructure>;
   alterTable(connectionId: string, target: DataTarget, op: AlterOperation): Promise<void>;

@@ -8,6 +8,7 @@ import type {
   IoFormat,
   PageRequest,
   RendererApi,
+  SchemaObject,
   TransferProgress,
   TransferRequest,
   TransferSummary,
@@ -27,6 +28,8 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.treeChildren, connectionId, node),
   getTableList: (connectionId: string, database?: string, schema?: string) =>
     ipcRenderer.invoke(IpcChannels.treeTableList, connectionId, database, schema),
+  getSchemaObjects: (connectionId: string, database?: string, schema?: string) =>
+    ipcRenderer.invoke(IpcChannels.schemaObjects, connectionId, database, schema),
   readRows: (connectionId: string, target: DataTarget, page: PageRequest) =>
     ipcRenderer.invoke(IpcChannels.dataRead, connectionId, target, page),
   getStructure: (connectionId: string, target: DataTarget) =>
