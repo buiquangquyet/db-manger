@@ -12,6 +12,8 @@ import {
 import type { DataTarget, DbKind, StoredConnection, TreeNode } from '@shared/types';
 import { ConnectionModal } from './ConnectionModal';
 import { CreateTableModal } from './CreateTableModal';
+import { TransferModal } from './TransferModal';
+import type { TransferSource } from './TransferModal';
 import { buildTableMenu, promptInput } from '../lib/tableActions';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
@@ -68,6 +70,8 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     dbLabel: string;
     parentKey: string;
   } | null>(null);
+  // Ngữ cảnh transfer (mở TransferModal) từ node database/schema được chọn.
+  const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -271,6 +275,7 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
               if (raw.type === 'database' || raw.type === 'schema') {
                 const items = [
                   { key: 'create', label: 'Tạo bảng' },
+                  { key: 'transfer', label: 'Transfer sang…' },
                   { key: 'refresh', label: 'Làm mới' },
                   ...(raw.type === 'database'
                     ? [{ key: 'dropDb', label: 'Xóa database', danger: true }]
@@ -290,6 +295,14 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                             schema: raw.meta?.schema as string | undefined,
                             dbLabel: raw.label,
                             parentKey: ui.key,
+                          });
+                        } else if (key === 'transfer') {
+                          setTransferSrc({
+                            connectionId: conn.id,
+                            kind: conn.kind,
+                            database: raw.meta?.database as string | undefined,
+                            schema: raw.meta?.schema as string | undefined,
+                            label: raw.label,
                           });
                         } else if (key === 'refresh') {
                           void reloadChildren(conn.id, ui.key);
@@ -341,6 +354,15 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
           dbLabel={createCtx.dbLabel}
           onClose={() => setCreateCtx(null)}
           onCreated={() => void reloadChildren(createCtx.connectionId, createCtx.parentKey)}
+        />
+      )}
+
+      {transferSrc && (
+        <TransferModal
+          open
+          source={transferSrc}
+          connections={connections}
+          onClose={() => setTransferSrc(null)}
         />
       )}
     </div>
