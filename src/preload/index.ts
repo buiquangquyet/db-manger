@@ -81,7 +81,7 @@ const api: RendererApi = {
   cancelTransfer: (transferId: string) =>
     ipcRenderer.invoke(IpcChannels.transferCancel, transferId),
   onTransferProgress: (cb: (p: TransferProgress) => void) => {
-    const listener = (_event: any, progress: TransferProgress) => cb(progress);
+    const listener = (_event: unknown, progress: TransferProgress) => cb(progress);
     ipcRenderer.on(IpcChannels.transferProgress, listener);
     return () => ipcRenderer.removeListener(IpcChannels.transferProgress, listener);
   },

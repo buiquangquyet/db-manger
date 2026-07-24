@@ -5,10 +5,15 @@ import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
 import { copyTableSql, exportTable, importTable, saveTextFile } from './io';
+import { runTransfer } from './transfer';
+import type { TransferRequest } from '@shared/types';
 
 export function registerIpc(): void {
   const store = new SecureStore();
   const sessions = new SessionManager();
+
+  // Cờ hủy theo transferId — set bởi transfer:cancel, đọc bởi runTransfer.
+  const transferFlags = new Map<string, { cancelled: boolean }>();
 
   ipcMain.handle(IpcChannels.ping, () => 'pong');
 
@@ -146,6 +151,26 @@ export function registerIpc(): void {
   ipcMain.handle(IpcChannels.ioCopyTableSql, (_e, connectionId: string, target: DataTarget, withData: boolean) =>
     copyTableSql(sessions, connectionId, target, withData),
   );
+
+  ipcMain.handle(IpcChannels.transferStart, async (e, req: TransferRequest) => {
+    const flag = { cancelled: false };
+    transferFlags.set(req.transferId, flag);
+    try {
+      return await runTransfer(
+        sessions,
+        req,
+        (p) => e.sender.send(IpcChannels.transferProgress, p),
+        () => flag.cancelled,
+      );
+    } finally {
+      transferFlags.delete(req.transferId);
+    }
+  });
+
+  ipcMain.handle(IpcChannels.transferCancel, (_e, transferId: string) => {
+    const flag = transferFlags.get(transferId);
+    if (flag) flag.cancelled = true;
+  });
 
   return;
 }
