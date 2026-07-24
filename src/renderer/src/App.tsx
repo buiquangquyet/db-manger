@@ -118,6 +118,14 @@ export default function App() {
               connectionId={session.connection.id}
               language={session.capabilities.sql ? 'sql' : 'plaintext'}
               placeholder={queryPlaceholder(session.capabilities)}
+              database={
+                dbSelection?.connectionId === session.connection.id
+                  ? dbSelection.database ?? session.connection.database
+                  : session.connection.database
+              }
+              schema={
+                dbSelection?.connectionId === session.connection.id ? dbSelection.schema : undefined
+              }
             />
           ),
         },

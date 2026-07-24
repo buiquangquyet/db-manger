@@ -4,6 +4,7 @@ import type { ColDef } from 'ag-grid-community';
 import { Button, Dropdown, Space, message } from 'antd';
 import { CaretRightOutlined, DownloadOutlined } from '@ant-design/icons';
 import { monaco } from '../monaco-setup';
+import { setActiveSchema, clearActiveSchema } from '../sql-completion';
 import type { QueryResult, RowSet } from '@shared/types';
 
 function cellText(v: unknown): string {
@@ -27,9 +28,11 @@ interface Props {
   connectionId: string;
   language: 'sql' | 'plaintext';
   placeholder: string;
+  database?: string;
+  schema?: string;
 }
 
-export function QueryPanel({ connectionId, language, placeholder }: Props) {
+export function QueryPanel({ connectionId, language, placeholder, database, schema }: Props) {
   const editorHost = useRef<HTMLDivElement>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -49,6 +52,24 @@ export function QueryPanel({ connectionId, language, placeholder }: Props) {
     return () => editor.dispose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Nạp schema cho autocomplete khi là SQL và khi database/schema đổi.
+  useEffect(() => {
+    if (language !== 'sql') return;
+    let cancelled = false;
+    window.api
+      .getSchemaObjects(connectionId, database, schema)
+      .then((objs) => {
+        if (!cancelled) setActiveSchema(objs);
+      })
+      .catch(() => {
+        /* mất autocomplete không chặn gõ query */
+      });
+    return () => {
+      cancelled = true;
+      clearActiveSchema();
+    };
+  }, [connectionId, database, schema, language]);
 
   const run = async () => {
     const query = editorRef.current?.getValue() ?? '';
