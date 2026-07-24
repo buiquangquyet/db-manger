@@ -37,7 +37,12 @@
       "Read(//opt/homebrew/bin/**)",
       "Bash(git remote *)",
       "Bash(git symbolic-ref *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Read(//Users/quyet.bq/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/**)",
+      "Bash(./scripts/task-brief /Users/quyet.bq/Public/db_manager/docs/superpowers/plans/2026-07-24-data-transfer.md 1)",
+      "Bash(./scripts/review-package 94d7141 e8aa241)",
+      "Bash(/Users/quyet.bq/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package 94d7141 *)",
+      "Bash(/Users/quyet.bq/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package e8aa241 *)"
     ]
   }
 }
