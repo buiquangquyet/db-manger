@@ -4,6 +4,7 @@ import { filterTree, findNode, findParentKey, insertChildren } from '../src/rend
 interface N {
   key: string;
   title: string;
+  searchTitle?: string;
   children?: N[];
 }
 
@@ -72,6 +73,47 @@ const names = (ns: N[]): string[] => ns.map((n) => n.title);
   filterTree(tree, 'order');
   assert.equal(tree[0].children!.length, 2);
   assert.equal(tree[0].children![0].children!.length, 3);
+}
+
+// searchTitle: node kết nối hiển thị "Prod (postgres)" nhưng chỉ so khớp trên tên trần "Prod"
+const decorated: N[] = [
+  {
+    key: 'conn:2',
+    title: 'Prod (postgres)',
+    searchTitle: 'Prod',
+    children: [
+      {
+        key: 'conn:2:db:shop',
+        title: 'shop',
+        children: [{ key: 'conn:2:tbl:posts', title: 'posts' }],
+      },
+      { key: 'conn:2:db:blog', title: 'blog' },
+    ],
+  },
+];
+
+// title chứa query ("(postgres)" chứa "post") nhưng searchTitle không -> KHÔNG tự khớp,
+// vẫn lọc tiếp xuống dưới và chỉ giữ nhánh dẫn tới bảng posts
+{
+  const r = filterTree(decorated, 'post');
+  assert.deepEqual(names(r.nodes), ['Prod (postgres)']);
+  assert.deepEqual(names(r.nodes[0].children!), ['shop']);
+  assert.deepEqual(names(r.nodes[0].children![0].children!), ['posts']);
+  assert.deepEqual([...r.expandKeys].sort(), ['conn:2', 'conn:2:db:shop']);
+}
+
+// khớp qua searchTitle -> xử sự như mọi node tự khớp: giữ đủ con đã tải, không vào expandKeys
+{
+  const r = filterTree(decorated, 'pro');
+  assert.deepEqual(names(r.nodes), ['Prod (postgres)']);
+  assert.deepEqual(names(r.nodes[0].children!), ['shop', 'blog']);
+  assert.deepEqual(r.expandKeys, []);
+}
+
+// searchTitle không phân biệt hoa/thường, và chỉ nó được so (không fallback về title)
+{
+  assert.deepEqual(names(filterTree(decorated, 'PROD').nodes), ['Prod (postgres)']);
+  assert.deepEqual(filterTree(decorated, 'gres').nodes, []);
 }
 
 // 3 tiện ích chuyển từ Sidebar giữ nguyên hành vi

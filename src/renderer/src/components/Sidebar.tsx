@@ -35,6 +35,8 @@ interface Props {
 interface UiNode {
   key: string;
   title: string;
+  /** Chuỗi để bộ lọc so khớp khi khác nhãn hiển thị (node kết nối: chỉ tên, bỏ hậu tố "(kind)"). */
+  searchTitle?: string;
   icon: React.ReactNode;
   isLeaf: boolean;
   connectionId: string;
@@ -117,6 +119,9 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       connections.map((c) => ({
         key: `conn:${c.id}`,
         title: `${c.name} (${c.kind})`,
+        // Lọc chỉ so trên tên kết nối: hậu tố "(kind)" mà cũng đem so thì những query rất đời
+        // thường như "post" (tìm bảng posts) sẽ tự khớp "(postgres)" và giữ nguyên cả nhánh.
+        searchTitle: c.name,
         icon: <DatabaseOutlined />,
         isLeaf: false,
         connectionId: c.id,

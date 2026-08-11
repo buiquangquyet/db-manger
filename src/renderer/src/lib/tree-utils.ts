@@ -2,6 +2,12 @@
 export interface TreeLike<T> {
   key: string;
   title: string;
+  /**
+   * Chuỗi dùng để so khớp khi lọc, khi nó khác nhãn hiển thị. Dành cho node có `title` được
+   * trang trí thêm (ví dụ node kết nối hiển thị `Tên (kind)`) — lọc phải chạy trên tên trần,
+   * nếu không phần hậu tố sẽ tự khớp và nuốt cả nhánh. Bỏ trống -> khớp trên `title`.
+   */
+  searchTitle?: string;
   children?: T[];
 }
 
@@ -53,6 +59,7 @@ export function insertChildren<T extends TreeLike<T>>(nodes: T[], key: string, c
  * Lọc cây theo tên node.
  *
  * - Giữ node khi chính nó khớp, hoặc khi có con cháu khớp.
+ * - So khớp trên `searchTitle` nếu node có, ngược lại trên `title`.
  * - Node tự khớp thì giữ nguyên toàn bộ con đã tải (không lọc tiếp xuống dưới),
  *   để gõ tên database vẫn xem được đầy đủ bảng bên trong.
  * - query rỗng trả về chính mảng đầu vào, không tạo bản sao.
@@ -66,7 +73,7 @@ export function filterTree<T extends TreeLike<T>>(nodes: T[], query: string): Fi
   const walk = (list: T[]): T[] => {
     const kept: T[] = [];
     for (const n of list) {
-      if (n.title.toLowerCase().includes(q)) {
+      if ((n.searchTitle ?? n.title).toLowerCase().includes(q)) {
         kept.push(n);
         continue;
       }
