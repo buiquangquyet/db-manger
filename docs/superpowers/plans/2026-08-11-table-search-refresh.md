@@ -704,5 +704,5 @@ EOF
 ## Sau khi xong 4 task
 
 - [ ] Chạy lại toàn bộ cổng kiểm: `npm run typecheck && npm run check:tree-utils`
-- [ ] `git log --oneline main..HEAD` — kỳ vọng 5 commit (1 spec + 4 task)
+- [ ] `git log --oneline main..HEAD` — kỳ vọng: 1 commit spec + 1 commit plan + 1 commit cho mỗi task, cộng các commit sửa theo code review (`fix(ui):`) và cập nhật tài liệu (`docs(ui):`) phát sinh trong lúc làm. Không chốt một con số cố định — số commit trôi theo số vòng review.
 - [ ] Quyết định merge/PR theo `superpowers:finishing-a-development-branch`

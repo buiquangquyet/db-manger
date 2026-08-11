@@ -39,7 +39,7 @@ Ngoài phạm vi:
 
 ### 1. `lib/tree-utils.ts` (mới)
 
-Module thuần, không phụ thuộc React hay antd. Generic trên node hình dạng `{ key: string; title: string; children?: T[] }` để không kéo type `UiNode` ra khỏi Sidebar.
+Module thuần, không phụ thuộc React hay antd. Generic trên node hình dạng `{ key: string; title: string; searchTitle?: string; children?: T[] }` để không kéo type `UiNode` ra khỏi Sidebar.
 
 Chuyển từ `Sidebar.tsx` sang, giữ nguyên hành vi:
 
@@ -55,7 +55,8 @@ filterTree<T>(nodes: T[], query: string): { nodes: T[]; expandKeys: string[] }
 
 Luật lọc:
 
-- So khớp: `title` chứa `query`, không phân biệt hoa/thường (cả hai vế `toLowerCase()`). Không xử lý dấu tiếng Việt.
+- So khớp: `searchTitle ?? title` chứa `query`, không phân biệt hoa/thường (cả hai vế `toLowerCase()`). Không xử lý dấu tiếng Việt.
+- `searchTitle?: string` là trường tùy chọn của `TreeLike`, dành cho node có nhãn được trang trí thêm: node kết nối hiển thị `Tên (kind)` nhưng chỉ so khớp trên `Tên`. Nếu so cả hậu tố thì query rất đời thường như `post` (tìm bảng `posts`) sẽ tự khớp `(postgres)` và giữ nguyên cả nhánh kết nối — bộ lọc trông như không chạy. Nhờ vậy sidebar và DatabaseOverview cùng so trên tên trần của đối tượng.
 - `query` rỗng (sau `trim`) → trả về `nodes` nguyên vẹn và `expandKeys` rỗng.
 - Giữ một node khi: chính nó khớp, **hoặc** có con cháu khớp.
 - Node tự khớp → giữ **toàn bộ** con đã tải của nó, không lọc tiếp xuống dưới. Gõ tên database vẫn xem được đầy đủ bảng bên trong.
@@ -82,6 +83,33 @@ Hàm trả về mảng mới, không sửa đầu vào.
 **Trạng thái rỗng.** Điều kiện hiện tại `connections.length === 0` → `Empty "Chưa có kết nối"`. Thêm nhánh: có kết nối nhưng cây sau lọc rỗng → `Empty "Không có node nào khớp"`.
 
 **Giới hạn đã biết.** Bảng nằm trong database chưa expand sẽ không tìm ra. Đây là hệ quả có chủ ý của phương án client-side; placeholder đã nêu.
+
+> **Sửa đổi sau khi thực thi (2026-08-11).** Phần "Expand có kiểm soát" ở trên đã bị thay thế
+> trong lúc làm. Mô hình một state — `expandedKeys` = hợp của `userExpandedKeys` và `expandKeys`,
+> `onExpand` ghi thẳng vào `userExpandedKeys` — làm rò trạng thái: đang lọc mà người dùng mở thêm
+> một nhánh thì antd gọi `onExpand` với TOÀN BỘ danh sách key đang mở (gồm cả key do bộ lọc tự
+> mở), các key đó chui vào `userExpandedKeys`, nên xóa ô lọc xong cây lại mở nhiều nhánh hơn lúc
+> đầu. Người dùng đã phán quyết: finding thắng spec. Bản đã giao dùng **hai state tách biệt**:
+>
+> - `userExpandedKeys` — trạng thái mở ngoài lọc. Khi không lọc thì `onExpand` ghi thẳng. Khi
+>   đang lọc thì chỉ **CỘNG THÊM** key mới người dùng chủ động mở, không bao giờ bị **RÚT**: thu
+>   một nhánh trong lúc lọc chỉ là xem tạm, không phải huỷ trạng thái gốc.
+> - `filterExpandedKeys` — khung nhìn trong lúc lọc, gieo từ `userExpandedKeys ∪ expandKeys` khi
+>   bắt đầu một lượt lọc, sau đó mỗi lần `expandKeys` đổi chỉ merge thêm phần MỚI xuất hiện (giữ
+>   nguyên nhánh người dùng đã tự thu). Xóa ô lọc thì thôi được đọc chứ không bị dọn — mảng cũ
+>   nằm lại tới khi lượt lọc kế tiếp gieo lại.
+>
+> `expandedKeys` truyền cho `Tree` = `isFiltering ? filterExpandedKeys : userExpandedKeys`.
+> Hợp đồng phải giữ: xóa ô lọc trả cây về đúng các nhánh người dùng đang mở, và mở/thu nhánh
+> trong lúc lọc phải có hiệu lực nhìn thấy được. Xem `Sidebar.tsx:99-162`, commit `594f0a3`,
+> `0023931`, `73ace25`, và ghi chú tương ứng trong plan.
+>
+> **Hệ quả kèm theo.** Vì `expandedKeys` giờ là prop có kiểm soát, rc-tree không còn tự thu node
+> lại khi `loadData` reject (nhánh rollback của nó ghi state qua `setUncontrolledState` với cờ
+> atomic, bị chặn khi `expandedKeys` nằm trong props) và nó cũng nuốt luôn rejection. Nên
+> `onLoadData` phải tự bắt lỗi: báo `message.error("Tải cây thất bại: …")`, bỏ key khỏi cả hai
+> state trên, rồi ném lại để rc-tree không đánh dấu node là đã tải. Mục "Xử lý lỗi" bên dưới nói
+> "không phát sinh đường lỗi mới" là không còn đúng ở điểm này.
 
 ### 3. DatabaseOverview
 
