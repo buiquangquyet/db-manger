@@ -148,9 +148,15 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     IpcChannels.queryExecute,
-    (_e, connectionId: string, query: string, target?: QueryTarget) =>
-      sessions.get(connectionId).executeRaw(query, target),
+    (_e, connectionId: string, query: string, target?: QueryTarget, queryId?: string) =>
+      sessions.get(connectionId).executeRaw(query, target, queryId),
   );
+
+  ipcMain.handle(IpcChannels.queryCancel, async (_e, connectionId: string, queryId: string) => {
+    const adapter = sessions.get(connectionId);
+    if (!adapter.cancelQuery) throw new Error('Loại DB này không hỗ trợ hủy query.');
+    await adapter.cancelQuery(queryId);
+  });
 
   ipcMain.handle(IpcChannels.ioExport, (_e, connectionId: string, target: DataTarget, format: IoFormat) =>
     exportTable(sessions, connectionId, target, format),

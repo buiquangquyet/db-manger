@@ -70,8 +70,10 @@ const api: RendererApi = {
   ) => ipcRenderer.invoke(IpcChannels.dataUpdateDocument, connectionId, target, rowKey, ejson),
   insertDocument: (connectionId: string, target: DataTarget, ejson: string) =>
     ipcRenderer.invoke(IpcChannels.dataInsertDocument, connectionId, target, ejson),
-  executeQuery: (connectionId: string, query: string, target?: QueryTarget) =>
-    ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, target),
+  executeQuery: (connectionId: string, query: string, target?: QueryTarget, queryId?: string) =>
+    ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, target, queryId),
+  cancelQuery: (connectionId: string, queryId: string) =>
+    ipcRenderer.invoke(IpcChannels.queryCancel, connectionId, queryId),
   exportTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
     ipcRenderer.invoke(IpcChannels.ioExport, connectionId, target, format),
   importTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
