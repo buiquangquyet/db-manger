@@ -252,7 +252,11 @@ export class PostgresAdapter implements DatabaseAdapter {
        JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS fk(attnum, ord) ON fk.ord = k.ord
        JOIN pg_attribute src ON src.attrelid = t.oid  AND src.attnum = k.attnum
        JOIN pg_attribute tgt ON tgt.attrelid = ft.oid AND tgt.attnum = fk.attnum
-       WHERE con.contype = 'f' AND n.nspname = $1 AND t.relname = $2
+       -- FK trỏ tới bảng phân mảnh (partitioned) sinh thêm một pg_constraint con cho mỗi
+       -- partition (từ PG 12); conparentid = 0 giữ lại đúng constraint do người dùng khai báo
+       -- (giống cách psql \\d lọc). Đánh đổi: khi xem chính một partition, FK thừa kế từ bảng
+       -- mẹ sẽ bị ẩn.
+       WHERE con.contype = 'f' AND con.conparentid = 0 AND n.nspname = $1 AND t.relname = $2
        ORDER BY con.conname, k.ord`,
       [schema, target.name],
     );

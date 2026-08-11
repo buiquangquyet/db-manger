@@ -227,9 +227,12 @@ export class MariaDbAdapter implements DatabaseAdapter {
     }
     // KEY_COLUMN_USAGE cho cặp cột, REFERENTIAL_CONSTRAINTS cho quy tắc ON DELETE/UPDATE.
     // ORDER BY ordinal_position là bắt buộc: groupForeignKeys ghép cột nguồn với cột đích
-    // theo thứ tự dòng.
+    // theo thứ tự dòng. Điều kiện constraint_schema trong JOIN cũng bắt buộc: tên constraint
+    // chỉ duy nhất trong một database, nếu thiếu điều kiện này, một tên constraint bị tái sử
+    // dụng ở database khác sẽ khớp cả hai, khiến mỗi dòng bị nhân đôi.
     const [fks] = await this.db().query(
-      `SELECT k.constraint_name, k.column_name, k.referenced_table_name, k.referenced_column_name,
+      `SELECT k.constraint_name, k.column_name, k.referenced_table_schema,
+              k.referenced_table_name, k.referenced_column_name,
               r.delete_rule, r.update_rule
        FROM information_schema.key_column_usage k
        JOIN information_schema.referential_constraints r
@@ -242,6 +245,8 @@ export class MariaDbAdapter implements DatabaseAdapter {
       (fks as Record<string, string>[]).map((r) => ({
         name: r.constraint_name,
         column: r.column_name,
+        // Cùng quy tắc với Postgres: chỉ hiện refSchema khi bảng đích ở database khác.
+        refSchema: r.referenced_table_schema !== db ? r.referenced_table_schema : undefined,
         refTable: r.referenced_table_name,
         refColumn: r.referenced_column_name,
         onDelete: r.delete_rule || undefined,
