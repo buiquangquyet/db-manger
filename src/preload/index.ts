@@ -74,6 +74,8 @@ const api: RendererApi = {
     ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, target, queryId),
   cancelQuery: (connectionId: string, queryId: string) =>
     ipcRenderer.invoke(IpcChannels.queryCancel, connectionId, queryId),
+  listQueryHistory: () => ipcRenderer.invoke(IpcChannels.historyList),
+  clearQueryHistory: () => ipcRenderer.invoke(IpcChannels.historyClear),
   exportTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
     ipcRenderer.invoke(IpcChannels.ioExport, connectionId, target, format),
   importTable: (connectionId: string, target: DataTarget, format: IoFormat) =>

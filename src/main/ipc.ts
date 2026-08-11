@@ -12,12 +12,14 @@ import { IpcChannels } from '@shared/types';
 import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
 import { SessionManager } from './session-manager';
+import { QueryHistoryStore } from './query-history';
 import { copyTableSql, exportTable, importTable, saveTextFile } from './io';
 import { runTransfer } from './transfer';
 import type { TransferRequest } from '@shared/types';
 
 export function registerIpc(): void {
   const store = new SecureStore();
+  const history = new QueryHistoryStore();
   const sessions = new SessionManager();
 
   // Cờ hủy theo transferId — set bởi transfer:cancel, đọc bởi runTransfer.
@@ -148,9 +150,40 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     IpcChannels.queryExecute,
-    (_e, connectionId: string, query: string, target?: QueryTarget, queryId?: string) =>
-      sessions.get(connectionId).executeRaw(query, target, queryId),
+    async (_e, connectionId: string, query: string, target?: QueryTarget, queryId?: string) => {
+      const startedAt = Date.now();
+      try {
+        const res = await sessions.get(connectionId).executeRaw(query, target, queryId);
+        history.add({
+          connectionId,
+          database: target?.database,
+          schema: target?.schema,
+          sql: query,
+          startedAt,
+          durationMs: res.durationMs,
+          status: 'ok',
+          rowCount: res.rowSet?.rows.length ?? res.affectedRows,
+        });
+        return res;
+      } catch (err) {
+        history.add({
+          connectionId,
+          database: target?.database,
+          schema: target?.schema,
+          sql: query,
+          startedAt,
+          // executeRaw ném trước khi đo được, nên tự tính từ startedAt.
+          durationMs: Date.now() - startedAt,
+          status: 'error',
+          error: (err as Error).message,
+        });
+        throw err; // renderer vẫn phải thấy lỗi như cũ
+      }
+    },
   );
+
+  ipcMain.handle(IpcChannels.historyList, () => history.list());
+  ipcMain.handle(IpcChannels.historyClear, () => history.clear());
 
   ipcMain.handle(IpcChannels.queryCancel, async (_e, connectionId: string, queryId: string) => {
     const adapter = sessions.get(connectionId);
