@@ -34,6 +34,9 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   private pool: pg.Pool | null = null;
 
+  /** queryId -> processID (PID backend) của client đang chạy, để pg_cancel_backend từ client khác. */
+  private running = new Map<string, number>();
+
   constructor(private readonly config: ConnectionConfig) {}
 
   async connect(): Promise<void> {
@@ -491,12 +494,16 @@ export class PostgresAdapter implements DatabaseAdapter {
     if (res.rowCount === 0) throw new Error('Không xóa được dòng nào (dòng có thể đã bị xóa).');
   }
 
-  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget, queryId?: string): Promise<QueryResult> {
     const started = process.hrtime.bigint();
     // Phải mượn một client cố định: pool.query() có thể rơi vào client khác nhau giữa
     // hai lần gọi, nên SET search_path bắn rời sẽ không chắc áp cho query ngay sau đó.
     // Pool gắn cứng vào một database nên target.database không dùng được ở đây.
     const client = await this.db().connect();
+    // processID có thật lúc chạy (pg/lib/client.js gán khi nhận BackendKeyData) nhưng
+    // KHÔNG được khai báo trong @types/pg — phải cast. Đừng bỏ dòng này vì tưởng thừa.
+    const pid = (client as unknown as { processID?: number }).processID;
+    if (queryId && pid) this.running.set(queryId, pid);
     try {
       if (target?.schema) await client.query(`SET search_path TO ${quoteIdentPg(target.schema)}`);
       const res = await client.query(query);
@@ -519,7 +526,34 @@ export class PostgresAdapter implements DatabaseAdapter {
         durationMs,
       };
     } finally {
+      // Gỡ sổ đăng ký TRƯỚC khi release(): nếu release trước, có cửa sổ mà client đã về
+      // pool và có thể đang phục vụ query khác, nhưng sổ vẫn trỏ queryId cũ tới PID đó —
+      // lệnh hủy đến trong lúc này sẽ hủy nhầm query của người khác.
+      if (queryId) this.running.delete(queryId);
       client.release();
+    }
+  }
+
+  /**
+   * pg_cancel_backend gửi tín hiệu hủy tới backend đang chạy; phải phát từ một client
+   * KHÁC vì client đang chạy query bị chặn chờ kết quả.
+   *
+   * pg_cancel_backend không throw khi PID không tồn tại hoặc không đủ quyền — nó trả về
+   * boolean false (kèm WARNING ở mức không phải lỗi, không làm promise reject), nên không
+   * cần catch riêng cho hai ca đó. Lỗi thật (mất kết nối, ...) vẫn ném ra như thường.
+   */
+  async cancelQuery(queryId: string): Promise<void> {
+    const pid = this.running.get(queryId);
+    if (pid === undefined) return; // query đã xong trước khi lệnh hủy tới nơi
+    const killer = await this.db().connect();
+    try {
+      // Query có thể đã xong trong lúc chờ mượn client (pool max: 5, có thể phải chờ dưới
+      // tải), client cũ khi đó đã về pool và có thể đang phục vụ query khác — kiểm lại để
+      // không hủy nhầm.
+      if (this.running.get(queryId) !== pid) return;
+      await killer.query('SELECT pg_cancel_backend($1)', [pid]);
+    } finally {
+      killer.release();
     }
   }
 }
