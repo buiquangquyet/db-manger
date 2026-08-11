@@ -152,19 +152,32 @@ export function QueryPanel({
   useEffect(() => {
     if (language !== 'sql') return;
     let cancelled = false;
-    window.api
-      .getSchemaObjects(targetConnId, queryTarget?.database, queryTarget?.schema)
-      .then((objs) => {
+    void (async () => {
+      try {
+        // Phải chờ mở phiên như effect nạp danh sách database ở trên: hai effect chạy song
+        // song, nếu không chờ thì getSchemaObjects ném "Phiên chưa mở" khi người dùng chọn
+        // một host chưa từng mở ở select.
+        await window.api.openSession(targetConnId);
+        const objs = await window.api.getSchemaObjects(
+          targetConnId,
+          queryTarget?.database,
+          queryTarget?.schema,
+        );
         if (!cancelled) setActiveSchema(objs);
-      })
-      .catch(() => {
-        /* mất autocomplete không chặn gõ query */
-      });
+      } catch (err) {
+        // Mất autocomplete không chặn gõ query, nhưng đừng nuốt trắng: im lặng ở đây từng
+        // khiến lỗi nạp metadata không để lại dấu vết nào để truy.
+        if (!cancelled) console.warn('Không nạp được schema cho autocomplete:', err);
+      }
+    })();
     return () => {
       cancelled = true;
-      clearActiveSchema();
     };
   }, [targetConnId, queryTarget, language]);
+
+  // Chỉ dọn schema khi panel unmount. Dọn theo từng lần đổi đích sẽ tạo một khoảng trống
+  // không có gợi ý nào giữa lúc đổi và lúc fetch mới trả về.
+  useEffect(() => () => clearActiveSchema(), []);
 
   // Nạp lịch sử khi mount, để tab Lịch sử có dữ liệu ngay cả khi chưa chạy query nào.
   useEffect(() => {

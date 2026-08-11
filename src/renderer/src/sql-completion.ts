@@ -34,26 +34,35 @@ function resolveColumns(name: string, fullText: string, schema: SchemaObject[]):
   return [];
 }
 
-/** Phân tích ngữ cảnh quanh con trỏ để chọn loại gợi ý. Thuần, không phụ thuộc Monaco/DOM. */
+/**
+ * Phân tích ngữ cảnh quanh con trỏ để chọn loại gợi ý. Thuần, không phụ thuộc Monaco/DOM.
+ *
+ * `schema` được phép null (chưa nạp xong, hoặc nạp thất bại). Khi đó KEYWORDS vẫn phải
+ * được gợi ý: đó là danh sách tĩnh, không liên quan gì tới metadata. Trước đây provider
+ * chặn cứng khi chưa có schema, khiến một lỗi nạp metadata làm câm luôn cả phần keyword —
+ * người dùng gõ gì cũng không thấy gợi ý nào.
+ */
 export function computeSuggestions(
   textUntilCursor: string,
   fullText: string,
-  schema: SchemaObject[],
+  schema: SchemaObject[] | null,
 ): Suggestion[] {
+  const objects = schema ?? [];
   // 1. `<X>.` -> cột của X (bảng hoặc alias)
   const dot = textUntilCursor.match(/([A-Za-z_][\w$]*)\.\s*$/);
   if (dot) {
-    return resolveColumns(dot[1], fullText, schema).map((c) => ({ label: c, kind: 'column' as const }));
+    return resolveColumns(dot[1], fullText, objects).map((c) => ({ label: c, kind: 'column' as const }));
   }
-  // 2. Ngay sau FROM/JOIN/INTO/UPDATE/TABLE (có khoảng trắng) -> tên bảng
+  // 2. Ngay sau FROM/JOIN/INTO/UPDATE/TABLE (có khoảng trắng) -> tên bảng.
+  // Chưa có schema thì trả rỗng, KHÔNG đổ keyword vào: ở đúng vị trí này keyword là gợi ý sai.
   const kw = textUntilCursor.match(/\b([A-Za-z_]+)\s+$/);
   if (kw && TABLE_CONTEXT.has(kw[1].toUpperCase())) {
-    return schema.map((o) => ({ label: o.table, kind: 'table' as const }));
+    return objects.map((o) => ({ label: o.table, kind: 'table' as const }));
   }
   // 3. Mặc định: keyword + tên bảng
   return [
     ...KEYWORDS.map((k) => ({ label: k, kind: 'keyword' as const })),
-    ...schema.map((o) => ({ label: o.table, kind: 'table' as const })),
+    ...objects.map((o) => ({ label: o.table, kind: 'table' as const })),
   ];
 }
 
@@ -74,7 +83,7 @@ export function registerSqlCompletion(monaco: typeof Monaco): void {
   monaco.languages.registerCompletionItemProvider('sql', {
     triggerCharacters: ['.'],
     provideCompletionItems(model, position) {
-      if (!activeSchema) return { suggestions: [] };
+      // Không chặn khi activeSchema còn null: computeSuggestions vẫn trả keyword được.
       const textUntilCursor = model.getValueInRange({
         startLineNumber: 1,
         startColumn: 1,
