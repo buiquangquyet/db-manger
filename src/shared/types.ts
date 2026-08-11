@@ -301,6 +301,21 @@ export interface TestConnectionResult {
   error?: string;
 }
 
+/** Một lần chạy query đã được ghi lại. */
+export interface QueryHistoryEntry {
+  id: string;
+  connectionId: string;
+  database?: string;
+  schema?: string;
+  sql: string;
+  /** epoch ms lúc bắt đầu chạy. */
+  startedAt: number;
+  durationMs: number;
+  status: 'ok' | 'error';
+  rowCount?: number;
+  error?: string;
+}
+
 /**
  * Hợp đồng chung mọi adapter phải hiện thực.
  * UI chỉ nói chuyện qua interface này (thông qua IPC) — không phụ thuộc driver cụ thể.
@@ -422,6 +437,8 @@ export const IpcChannels = {
   dataInsertDocument: 'data:insertDocument',
   queryExecute: 'query:execute',
   queryCancel: 'query:cancel',
+  historyList: 'history:list',
+  historyClear: 'history:clear',
   ioExport: 'io:export',
   ioImport: 'io:import',
   ioSaveText: 'io:saveText',
@@ -492,4 +509,7 @@ export interface RendererApi {
   cancelTransfer(transferId: string): Promise<void>;
   /** Đăng ký nhận tiến trình; trả về hàm hủy đăng ký. */
   onTransferProgress(cb: (p: TransferProgress) => void): () => void;
+  /** Lịch sử query, mới nhất trước. */
+  listQueryHistory(): Promise<QueryHistoryEntry[]>;
+  clearQueryHistory(): Promise<void>;
 }
