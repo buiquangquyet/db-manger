@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Button, Dropdown, Empty, Modal, Tree, message } from 'antd';
+import { Button, Dropdown, Empty, Input, Modal, Tree, message } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   DatabaseOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   TableOutlined,
   FolderOutlined,
   KeyOutlined,
@@ -15,7 +16,7 @@ import { CreateTableModal } from './CreateTableModal';
 import { TransferModal } from './TransferModal';
 import type { TransferSource } from './TransferModal';
 import { buildTableMenu, promptInput } from '../lib/tableActions';
-import { findNode, findParentKey, insertChildren } from '../lib/tree-utils';
+import { filterTree, findNode, findParentKey, insertChildren } from '../lib/tree-utils';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
 const canManage = (kind: DbKind): boolean => kind !== 'redis';
@@ -58,6 +59,21 @@ function iconFor(type: TreeNode['type']): React.ReactNode {
   }
 }
 
+/** Bọc phần khớp trong nhãn bằng <mark> để dễ nhìn khi đang lọc. */
+function highlight(title: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return title;
+  const i = title.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return title;
+  return (
+    <>
+      {title.slice(0, i)}
+      <mark style={{ background: '#ffe58f', padding: 0 }}>{title.slice(i, i + q.length)}</mark>
+      {title.slice(i + q.length)}
+    </>
+  );
+}
+
 export function Sidebar({ connections, activeConnectionId, onConnectionsChanged, onOpen, onSelectTarget, onSelectDatabase }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<StoredConnection | null>(null);
@@ -73,6 +89,10 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   } | null>(null);
   // Ngữ cảnh transfer (mở TransferModal) từ node database/schema được chọn.
   const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);
+  // Chuỗi lọc cây (client-side, chỉ trên node đã tải).
+  const [query, setQuery] = useState('');
+  // Trạng thái mở do người dùng tự bấm — nguồn sự thật khi không lọc.
+  const [userExpandedKeys, setUserExpandedKeys] = useState<React.Key[]>([]);
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -86,6 +106,14 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
         children: treeData[c.id],
       })),
     [connections, treeData],
+  );
+
+  const { nodes: visibleNodes, expandKeys } = useMemo(() => filterTree(rootNodes, query), [rootNodes, query]);
+
+  // Khi lọc: mở thêm các nhánh chứa kết quả. Xóa ô lọc -> tự quay về trạng thái người dùng đã mở.
+  const expandedKeys = useMemo(
+    () => (query.trim() ? Array.from(new Set([...userExpandedKeys, ...expandKeys])) : userExpandedKeys),
+    [query, userExpandedKeys, expandKeys],
   );
 
   const loadRoot = async (conn: StoredConnection) => {
@@ -219,15 +247,30 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
         </Button>
         <Button size="small" icon={<ReloadOutlined />} onClick={onConnectionsChanged} />
       </div>
+      <div className="sidebar-filter">
+        <Input
+          size="small"
+          allowClear
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          placeholder="Lọc trong cây đang mở…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       <div className="sidebar-tree">
         {connections.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có kết nối" />
+        ) : visibleNodes.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có node nào khớp" />
         ) : (
           <Tree
             showIcon
             blockNode
             expandAction="click"
-            treeData={rootNodes as unknown as DataNode[]}
+            treeData={visibleNodes as unknown as DataNode[]}
+            expandedKeys={expandedKeys}
+            autoExpandParent={false}
+            onExpand={(keys) => setUserExpandedKeys(keys)}
             loadData={onLoadData}
             onSelect={onSelect}
             onDoubleClick={(_e, node) => {
@@ -263,14 +306,14 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                     }}
                   >
                     <span style={{ fontWeight: ui.connectionId === activeConnectionId ? 600 : 400 }}>
-                      {ui.title}
+                      {highlight(ui.title, query)}
                     </span>
                   </Dropdown>
                 );
               }
               const raw = ui.raw;
               const conn = connections.find((c) => c.id === ui.connectionId);
-              if (!raw || !conn || !canManage(conn.kind)) return <span>{ui.title}</span>;
+              if (!raw || !conn || !canManage(conn.kind)) return <span>{highlight(ui.title, query)}</span>;
 
               // Menu cho node database/schema.
               if (raw.type === 'database' || raw.type === 'schema') {
@@ -313,7 +356,7 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                       },
                     }}
                   >
-                    <span>{ui.title}</span>
+                    <span>{highlight(ui.title, query)}</span>
                   </Dropdown>
                 );
               }
@@ -327,12 +370,12 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                 );
                 return (
                   <Dropdown trigger={['contextMenu']} menu={menu}>
-                    <span>{ui.title}</span>
+                    <span>{highlight(ui.title, query)}</span>
                   </Dropdown>
                 );
               }
 
-              return <span>{ui.title}</span>;
+              return <span>{highlight(ui.title, query)}</span>;
             }}
           />
         )}
