@@ -349,7 +349,19 @@ function highlight(title: string, query: string): React.ReactNode {
 }
 ```
 
-- [ ] **Step 3: Thêm state lọc và expand có kiểm soát**
+> **Sửa đổi sau khi thực thi (2026-08-11).** Step 3 và Step 5 dưới đây đã bị thay thế trong lúc
+> làm. Code như viết ban đầu — `expandedKeys` = hợp của `userExpandedKeys` và `expandKeys`, còn
+> `onExpand={(keys) => setUserExpandedKeys(keys)}` — làm rò trạng thái: khi đang lọc mà người dùng
+> mở thêm nhánh, antd gọi `onExpand` với toàn bộ danh sách key đang mở (gồm cả key do bộ lọc tự
+> mở), các key đó bị ghi vào `userExpandedKeys` nên xóa ô lọc lại mở nhiều nhánh hơn lúc đầu.
+> Người dùng đã phán quyết: finding thắng plan. Bản đã giao dùng hai state tách biệt —
+> `userExpandedKeys` (chỉ cộng thêm, không bao giờ bị rút) cho trạng thái ngoài lọc, và
+> `filterExpandedKeys` cho khung nhìn trong lúc lọc, gieo lúc bắt đầu lọc và bỏ khi xóa ô lọc.
+> Xem `Sidebar.tsx:97-155` và commit `594f0a3`, `0023931`, `73ace25`. Hợp đồng phải giữ: xóa ô lọc
+> trả cây về đúng các nhánh người dùng đang mở, và mở/thu nhánh trong lúc lọc phải có hiệu lực
+> nhìn thấy được.
+
+- [ ] **Step 3: Thêm state lọc và expand có kiểm soát** *(đã thay thế — xem ghi chú trên)*
 
 Ngay sau `const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);`:
 
