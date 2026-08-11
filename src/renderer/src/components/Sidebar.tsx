@@ -15,6 +15,7 @@ import { CreateTableModal } from './CreateTableModal';
 import { TransferModal } from './TransferModal';
 import type { TransferSource } from './TransferModal';
 import { buildTableMenu, promptInput } from '../lib/tableActions';
+import { findNode, findParentKey, insertChildren } from '../lib/tree-utils';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
 const canManage = (kind: DbKind): boolean => kind !== 'redis';
@@ -367,37 +368,4 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       )}
     </div>
   );
-}
-
-/** Tìm node theo key (đệ quy). */
-function findNode(nodes: UiNode[], key: string): UiNode | undefined {
-  for (const n of nodes) {
-    if (n.key === key) return n;
-    if (n.children) {
-      const found = findNode(n.children, key);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-/** Tìm key của node cha chứa childKey (đệ quy). */
-function findParentKey(nodes: UiNode[], childKey: string, parentKey?: string): string | undefined {
-  for (const n of nodes) {
-    if (n.key === childKey) return parentKey;
-    if (n.children) {
-      const found = findParentKey(n.children, childKey, n.key);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-/** Chèn danh sách con vào node có key cho trước (đệ quy). */
-function insertChildren(nodes: UiNode[], key: string, children: UiNode[]): UiNode[] {
-  return nodes.map((n) => {
-    if (n.key === key) return { ...n, children };
-    if (n.children) return { ...n, children: insertChildren(n.children, key, children) };
-    return n;
-  });
 }
