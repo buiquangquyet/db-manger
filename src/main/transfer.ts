@@ -102,13 +102,13 @@ export async function runTransfer(
         if (dest.capabilities.dataModel === 'document') {
           await dest.createTable(dstTarget, []);
         } else {
-          // Lưu ý (v1 limitation): getCreateStatement (Postgres) trả DDL gắn với schema
-          // của NGUỒN, còn executeRaw bỏ qua tham số database/schema đích. Nếu bật
-          // createStructure mà tên schema đích khác tên schema nguồn, bảng sẽ được tạo
-          // nhầm vào schema nguồn (hoặc schema mặc định) và bước insert kế tiếp sẽ lỗi.
-          // Trường hợp cùng tên schema (vd public → public) vẫn hoạt động đúng.
+          // Lưu ý (giới hạn còn lại): getCreateStatement (Postgres) trả DDL gắn với schema
+          // của NGUỒN. executeRaw giờ đã nhận schema đích và chạy SET search_path, nhưng
+          // DDL có schema qualify sẵn thì search_path không ghi đè được. Nếu bật
+          // createStructure mà tên schema đích khác tên schema nguồn, bảng vẫn có thể bị
+          // tạo vào schema nguồn. Trường hợp cùng tên schema (vd public → public) đúng.
           const ddl = await source.getCreateStatement(srcTarget);
-          await dest.executeRaw(ddl, req.dest.database);
+          await dest.executeRaw(ddl, { database: req.dest.database, schema: req.dest.schema });
         }
       }
 

@@ -8,6 +8,7 @@ import type {
   DatabaseAdapter,
   PageRequest,
   QueryResult,
+  QueryTarget,
   RowSet,
   SchemaObject,
   TableStructure,
@@ -449,26 +450,35 @@ export class PostgresAdapter implements DatabaseAdapter {
     if (res.rowCount === 0) throw new Error('Không xóa được dòng nào (dòng có thể đã bị xóa).');
   }
 
-  async executeRaw(query: string): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
     const started = process.hrtime.bigint();
-    const res = await this.db().query(query);
-    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    // Phải mượn một client cố định: pool.query() có thể rơi vào client khác nhau giữa
+    // hai lần gọi, nên SET search_path bắn rời sẽ không chắc áp cho query ngay sau đó.
+    // Pool gắn cứng vào một database nên target.database không dùng được ở đây.
+    const client = await this.db().connect();
+    try {
+      if (target?.schema) await client.query(`SET search_path TO ${quoteIdentPg(target.schema)}`);
+      const res = await client.query(query);
+      const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
 
-    // pg trả về command (SELECT/INSERT/…) trong res.command.
-    if (res.command === 'SELECT' || res.fields.length > 0) {
+      // pg trả về command (SELECT/INSERT/…) trong res.command.
+      if (res.command === 'SELECT' || res.fields.length > 0) {
+        return {
+          rowSet: {
+            columns: res.fields.map((f) => ({ name: f.name })),
+            rows: res.rows as Record<string, unknown>[],
+            total: res.rowCount,
+          },
+          durationMs,
+        };
+      }
       return {
-        rowSet: {
-          columns: res.fields.map((f) => ({ name: f.name })),
-          rows: res.rows as Record<string, unknown>[],
-          total: res.rowCount,
-        },
+        affectedRows: res.rowCount ?? 0,
+        message: `OK, ${res.rowCount ?? 0} dòng bị ảnh hưởng`,
         durationMs,
       };
+    } finally {
+      client.release();
     }
-    return {
-      affectedRows: res.rowCount ?? 0,
-      message: `OK, ${res.rowCount ?? 0} dòng bị ảnh hưởng`,
-      durationMs,
-    };
   }
 }

@@ -11,6 +11,7 @@ import type {
   DatabaseAdapter,
   PageRequest,
   QueryResult,
+  QueryTarget,
   RowSet,
   TableStructure,
   TableSummary,
@@ -199,9 +200,9 @@ export class MongoAdapter implements DatabaseAdapter {
    * - Bắt đầu bằng `{` → JSON `runCommand` (tương thích ngược), vd {"find":"users","limit":10}.
    * - Ngược lại → biểu thức mongosh, vd db.users.find({}).sort({_id:-1}).limit(10).
    */
-  async executeRaw(query: string, database?: string): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
     const started = process.hrtime.bigint();
-    const db = this.c().db(database ?? this.config.database);
+    const db = this.c().db(target?.database ?? this.config.database);
     const trimmed = query.trim();
 
     // Chế độ JSON runCommand (giữ nguyên hành vi cũ).

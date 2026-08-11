@@ -7,6 +7,7 @@ import type {
   DataTarget,
   IoFormat,
   PageRequest,
+  QueryTarget,
   RendererApi,
   SchemaObject,
   TransferProgress,
@@ -69,8 +70,8 @@ const api: RendererApi = {
   ) => ipcRenderer.invoke(IpcChannels.dataUpdateDocument, connectionId, target, rowKey, ejson),
   insertDocument: (connectionId: string, target: DataTarget, ejson: string) =>
     ipcRenderer.invoke(IpcChannels.dataInsertDocument, connectionId, target, ejson),
-  executeQuery: (connectionId: string, query: string, database?: string) =>
-    ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, database),
+  executeQuery: (connectionId: string, query: string, target?: QueryTarget) =>
+    ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, target),
   exportTable: (connectionId: string, target: DataTarget, format: IoFormat) =>
     ipcRenderer.invoke(IpcChannels.ioExport, connectionId, target, format),
   importTable: (connectionId: string, target: DataTarget, format: IoFormat) =>

@@ -1,5 +1,13 @@
 import { ipcMain } from 'electron';
-import type { AlterOperation, ColumnSpec, ConnectionConfig, DataTarget, PageRequest, TreeNode } from '@shared/types';
+import type {
+  AlterOperation,
+  ColumnSpec,
+  ConnectionConfig,
+  DataTarget,
+  PageRequest,
+  QueryTarget,
+  TreeNode,
+} from '@shared/types';
 import { IpcChannels } from '@shared/types';
 import type { IoFormat } from '@shared/types';
 import { SecureStore } from './secure-store';
@@ -140,8 +148,8 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     IpcChannels.queryExecute,
-    (_e, connectionId: string, query: string, database?: string) =>
-      sessions.get(connectionId).executeRaw(query, database),
+    (_e, connectionId: string, query: string, target?: QueryTarget) =>
+      sessions.get(connectionId).executeRaw(query, target),
   );
 
   ipcMain.handle(IpcChannels.ioExport, (_e, connectionId: string, target: DataTarget, format: IoFormat) =>

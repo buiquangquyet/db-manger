@@ -132,7 +132,7 @@ export async function importTable(
 
   if (format === 'sql') {
     // Chạy nguyên file .sql (nhiều câu lệnh) qua executeRaw.
-    await adapter.executeRaw(text, target.database);
+    await adapter.executeRaw(text, { database: target.database, schema: target.schema });
     return { count: 0 };
   }
 

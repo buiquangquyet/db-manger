@@ -116,6 +116,7 @@ export default function App() {
           children: (
             <QueryPanel
               connectionId={session.connection.id}
+              connections={connections}
               language={session.capabilities.sql ? 'sql' : 'plaintext'}
               placeholder={queryPlaceholder(session.capabilities)}
               database={
