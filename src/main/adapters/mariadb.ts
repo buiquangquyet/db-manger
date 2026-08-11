@@ -34,6 +34,9 @@ export class MariaDbAdapter implements DatabaseAdapter {
 
   private pool: mysql.Pool | null = null;
 
+  /** queryId -> threadId của connection đang chạy, để KILL QUERY từ connection khác. */
+  private running = new Map<string, number>();
+
   constructor(private readonly config: ConnectionConfig) {}
 
   async connect(): Promise<void> {
@@ -426,9 +429,10 @@ export class MariaDbAdapter implements DatabaseAdapter {
     }
   }
 
-  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget, queryId?: string): Promise<QueryResult> {
     const started = process.hrtime.bigint();
     const conn = await this.db().getConnection();
+    if (queryId) this.running.set(queryId, conn.threadId);
     try {
       // USE chạy trên đúng connection đang mượn nên không rò sang query khác của pool.
       if (target?.database) await conn.query(`USE ${quoteIdentMysql(target.database)}`);
@@ -452,7 +456,26 @@ export class MariaDbAdapter implements DatabaseAdapter {
         durationMs,
       };
     } finally {
+      // Gỡ sổ đăng ký TRƯỚC khi release(): nếu release trước, có cửa sổ mà connection
+      // đã về pool và có thể đang phục vụ query khác, nhưng sổ vẫn trỏ queryId cũ tới
+      // threadId đó — lệnh hủy đến trong lúc này sẽ giết nhầm query của người khác.
+      if (queryId) this.running.delete(queryId);
       conn.release();
+    }
+  }
+
+  /**
+   * KILL QUERY phải chạy từ MỘT connection khác: connection đang chạy query bị chặn
+   * chờ server, không nhận thêm lệnh nào.
+   */
+  async cancelQuery(queryId: string): Promise<void> {
+    const threadId = this.running.get(queryId);
+    if (threadId === undefined) return; // query đã xong trước khi lệnh hủy tới nơi
+    const killer = await this.db().getConnection();
+    try {
+      await killer.query(`KILL QUERY ${Number(threadId)}`);
+    } finally {
+      killer.release();
     }
   }
 }
