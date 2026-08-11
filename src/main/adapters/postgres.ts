@@ -16,7 +16,7 @@ import type {
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentPg, buildColumnFilterClauses, groupColumnsByTable } from './sql-util';
+import { quoteIdentPg, buildColumnFilterClauses, groupColumnsByTable, groupForeignKeys } from './sql-util';
 
 export class PostgresAdapter implements DatabaseAdapter {
   readonly kind = 'postgres' as const;
@@ -231,7 +231,44 @@ export class PostgresAdapter implements DatabaseAdapter {
       entry.columns.push(r.column_name);
       byName.set(r.index_name, entry);
     }
-    return { columns, indexes: [...byName.values()] };
+    // unnest(...) WITH ORDINALITY trên CẢ HAI mảng rồi join theo thứ tự: conkey[i] phải
+    // ghép đúng confkey[i]. Ghép sai thứ tự tạo ra FK hiển thị nhầm cặp cột ở khóa phức
+    // và không có cách nào phát hiện bằng mắt.
+    const fkRes = await this.db().query(
+      `SELECT con.conname AS name,
+              src.attname AS column_name,
+              fn.nspname  AS ref_schema,
+              ft.relname  AS ref_table,
+              tgt.attname AS ref_column,
+              con.confdeltype AS del_type,
+              con.confupdtype AS upd_type,
+              k.ord
+       FROM pg_constraint con
+       JOIN pg_class t ON t.oid = con.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       JOIN pg_class ft ON ft.oid = con.confrelid
+       JOIN pg_namespace fn ON fn.oid = ft.relnamespace
+       JOIN LATERAL unnest(con.conkey)  WITH ORDINALITY AS k(attnum, ord) ON true
+       JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS fk(attnum, ord) ON fk.ord = k.ord
+       JOIN pg_attribute src ON src.attrelid = t.oid  AND src.attnum = k.attnum
+       JOIN pg_attribute tgt ON tgt.attrelid = ft.oid AND tgt.attnum = fk.attnum
+       WHERE con.contype = 'f' AND n.nspname = $1 AND t.relname = $2
+       ORDER BY con.conname, k.ord`,
+      [schema, target.name],
+    );
+    const foreignKeys = groupForeignKeys(
+      fkRes.rows.map((r: Record<string, string>) => ({
+        name: r.name,
+        column: r.column_name,
+        refSchema: r.ref_schema !== schema ? r.ref_schema : undefined,
+        refTable: r.ref_table,
+        refColumn: r.ref_column,
+        onDelete: fkAction(r.del_type),
+        onUpdate: fkAction(r.upd_type),
+      })),
+    );
+
+    return { columns, indexes: [...byName.values()], foreignKeys };
   }
 
   async alterTable(target: DataTarget, op: AlterOperation): Promise<void> {
@@ -480,5 +517,17 @@ export class PostgresAdapter implements DatabaseAdapter {
     } finally {
       client.release();
     }
+  }
+}
+
+/** pg_constraint lưu quy tắc FK bằng một ký tự; đổi sang chữ cho dễ đọc. */
+function fkAction(code?: string): string | undefined {
+  switch (code) {
+    case 'a': return 'NO ACTION';
+    case 'r': return 'RESTRICT';
+    case 'c': return 'CASCADE';
+    case 'n': return 'SET NULL';
+    case 'd': return 'SET DEFAULT';
+    default: return undefined;
   }
 }

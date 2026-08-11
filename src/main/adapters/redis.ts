@@ -143,6 +143,8 @@ export class RedisAdapter implements DatabaseAdapter {
         { name: 'value', dataType: 'tùy type', nullable: true, default: null, isPrimaryKey: false },
       ],
       indexes: [],
+      // Không có khái niệm khóa ngoại.
+      foreignKeys: [],
       note: `Redis db${target.database ?? 0}: key-value store, không có schema cố định.`,
     };
   }

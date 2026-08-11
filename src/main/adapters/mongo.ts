@@ -251,7 +251,13 @@ export class MongoAdapter implements DatabaseAdapter {
       unique: Boolean(ix.unique),
     }));
 
-    return { columns, indexes, note: sample ? undefined : 'Collection rỗng — không suy ra được cột.' };
+    // Không có khái niệm khóa ngoại.
+    return {
+      columns,
+      indexes,
+      foreignKeys: [],
+      note: sample ? undefined : 'Collection rỗng — không suy ra được cột.',
+    };
   }
 
   async alterTable(): Promise<void> {

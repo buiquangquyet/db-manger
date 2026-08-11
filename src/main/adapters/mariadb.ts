@@ -16,7 +16,7 @@ import type {
   TestConnectionResult,
   TreeNode,
 } from '@shared/types';
-import { quoteIdentMysql, buildColumnFilterClauses, groupColumnsByTable } from './sql-util';
+import { quoteIdentMysql, buildColumnFilterClauses, groupColumnsByTable, groupForeignKeys } from './sql-util';
 
 export class MariaDbAdapter implements DatabaseAdapter {
   readonly kind = 'mariadb' as const;
@@ -225,7 +225,31 @@ export class MariaDbAdapter implements DatabaseAdapter {
       entry.columns.push(r.column_name);
       byName.set(r.index_name, entry);
     }
-    return { columns, indexes: [...byName.values()] };
+    // KEY_COLUMN_USAGE cho cặp cột, REFERENTIAL_CONSTRAINTS cho quy tắc ON DELETE/UPDATE.
+    // ORDER BY ordinal_position là bắt buộc: groupForeignKeys ghép cột nguồn với cột đích
+    // theo thứ tự dòng.
+    const [fks] = await this.db().query(
+      `SELECT k.constraint_name, k.column_name, k.referenced_table_name, k.referenced_column_name,
+              r.delete_rule, r.update_rule
+       FROM information_schema.key_column_usage k
+       JOIN information_schema.referential_constraints r
+         ON r.constraint_schema = k.constraint_schema AND r.constraint_name = k.constraint_name
+       WHERE k.table_schema = ? AND k.table_name = ? AND k.referenced_table_name IS NOT NULL
+       ORDER BY k.constraint_name, k.ordinal_position`,
+      [db, target.name],
+    );
+    const foreignKeys = groupForeignKeys(
+      (fks as Record<string, string>[]).map((r) => ({
+        name: r.constraint_name,
+        column: r.column_name,
+        refTable: r.referenced_table_name,
+        refColumn: r.referenced_column_name,
+        onDelete: r.delete_rule || undefined,
+        onUpdate: r.update_rule || undefined,
+      })),
+    );
+
+    return { columns, indexes: [...byName.values()], foreignKeys };
   }
 
   async alterTable(target: DataTarget, op: AlterOperation): Promise<void> {
