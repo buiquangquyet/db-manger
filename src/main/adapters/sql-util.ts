@@ -8,7 +8,7 @@ export function quoteIdentPg(name: string): string {
   return '"' + name.replace(/"/g, '""') + '"';
 }
 
-import type { ColumnFilter, SchemaObject } from '@shared/types';
+import type { ColumnFilter, ForeignKeyInfo, SchemaObject } from '@shared/types';
 
 interface SqlFilterDialect {
   /** escape identifier (quoteIdentPg / quoteIdentMysql). */
@@ -56,4 +56,42 @@ export function groupColumnsByTable(rows: { t: string; c: string }[]): SchemaObj
     else map.set(t, [c]);
   }
   return [...map.entries()].map(([table, columns]) => ({ table, columns }));
+}
+
+/** Một dòng metadata FK, mỗi cột trong khóa là một dòng. */
+export interface FkRow {
+  name: string;
+  column: string;
+  refSchema?: string;
+  refTable: string;
+  refColumn: string;
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+/**
+ * Gom các dòng metadata thành danh sách khóa ngoại.
+ * Người gọi PHẢI truyền rows đã sắp theo thứ tự cột trong khóa (ORDER BY ordinal):
+ * `columns[i]` và `refColumns[i]` khớp nhau theo chỉ số, sai thứ tự sẽ tạo ra cặp cột sai.
+ */
+export function groupForeignKeys(rows: FkRow[]): ForeignKeyInfo[] {
+  const map = new Map<string, ForeignKeyInfo>();
+  for (const r of rows) {
+    const found = map.get(r.name);
+    if (found) {
+      found.columns.push(r.column);
+      found.refColumns.push(r.refColumn);
+    } else {
+      map.set(r.name, {
+        name: r.name,
+        columns: [r.column],
+        refSchema: r.refSchema,
+        refTable: r.refTable,
+        refColumns: [r.refColumn],
+        onDelete: r.onDelete,
+        onUpdate: r.onUpdate,
+      });
+    }
+  }
+  return [...map.values()];
 }

@@ -167,10 +167,24 @@ export interface IndexInfo {
   unique: boolean;
 }
 
+/** Một khóa ngoại. `columns` và `refColumns` khớp nhau theo chỉ số. */
+export interface ForeignKeyInfo {
+  name: string;
+  columns: string[];
+  /** Schema của bảng đích, chỉ có ý nghĩa với Postgres khi khác schema hiện tại. */
+  refSchema?: string;
+  refTable: string;
+  refColumns: string[];
+  onDelete?: string;
+  onUpdate?: string;
+}
+
 /** Cấu trúc của một bảng/collection. */
 export interface TableStructure {
   columns: ColumnInfo[];
   indexes: IndexInfo[];
+  /** Khóa ngoại; [] với loại DB không có khái niệm này (Mongo, Redis). */
+  foreignKeys: ForeignKeyInfo[];
   /** Ghi chú khi loại đối tượng không có cấu trúc dạng bảng (vd Redis keyspace). */
   note?: string;
 }

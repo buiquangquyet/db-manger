@@ -14,6 +14,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "check:tree-utils": "esbuild scripts/check-tree-utils.ts --bundle --format=esm --platform=node --outfile=node_modules/.cache/check-tree-utils.mjs && node node_modules/.cache/check-tree-utils.mjs",
+    "check:foreign-keys": "esbuild scripts/check-foreign-keys.ts --bundle --format=esm --platform=node --outfile=node_modules/.cache/check-foreign-keys.mjs && node node_modules/.cache/check-foreign-keys.mjs",
     "publish": "node scripts/publish.mjs",
     "pack:dir": "electron-vite build && electron-builder --dir",
     "dist:mac": "node scripts/release.mjs --mac --no-publish",
