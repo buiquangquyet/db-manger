@@ -94,8 +94,21 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);
   // Chuỗi lọc cây (client-side, chỉ trên node đã tải).
   const [query, setQuery] = useState('');
-  // Trạng thái mở do người dùng tự bấm — nguồn sự thật khi không lọc.
+  // Trạng thái mở do người dùng tự bấm KHI KHÔNG LỌC — nguồn sự thật để quay lại sau khi xóa ô
+  // lọc. Bị "đóng băng" trong lúc lọc: không ghi gì vào đây khi query đang có giá trị, để thao
+  // tác mở/thu trong lúc lọc (chỉ là xem tạm) không làm mất trạng thái gốc của người dùng.
   const [userExpandedKeys, setUserExpandedKeys] = useState<React.Key[]>([]);
+  // Trạng thái mở riêng cho lúc đang lọc — người dùng có thể tự mở/thu thêm trong lúc lọc mà
+  // không đụng userExpandedKeys; bị bỏ hẳn khi xóa ô lọc (không mang gì sang lượt lọc sau).
+  const [filterExpandedKeys, setFilterExpandedKeys] = useState<React.Key[]>([]);
+  // "Ảnh chụp" lượt render trước: có đang lọc không, và expandKeys lúc đó là gì — để phân biệt
+  // "vừa bắt đầu lọc" (cần gieo filterExpandedKeys từ userExpandedKeys) với "vẫn đang lọc nhưng
+  // query/dữ liệu đổi" (chỉ merge thêm phần expandKeys MỚI xuất hiện, giữ nguyên các nhánh
+  // người dùng đã tự thu trong lúc lọc).
+  const [prevFilter, setPrevFilter] = useState<{ filtering: boolean; expandKeys: string[] }>({
+    filtering: false,
+    expandKeys: [],
+  });
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -112,12 +125,32 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   );
 
   const { nodes: visibleNodes, expandKeys } = useMemo(() => filterTree(rootNodes, query), [rootNodes, query]);
+  const isFiltering = query.trim().length > 0;
 
-  // Khi lọc: mở thêm các nhánh chứa kết quả. Xóa ô lọc -> tự quay về trạng thái người dùng đã mở.
-  const expandedKeys = useMemo(
-    () => (query.trim() ? Array.from(new Set([...userExpandedKeys, ...expandKeys])) : userExpandedKeys),
-    [query, userExpandedKeys, expandKeys],
-  );
+  // Đồng bộ filterExpandedKeys ngay trong lúc render (không dùng useEffect, để tránh nhấp nháy
+  // một khung hình khi bắt đầu lọc). Chỉ xử lý khi đang lọc hoặc vừa thoát lọc; bỏ qua hẳn ở
+  // trạng thái "không lọc" ổn định vì filterTree luôn trả về một mảng expandKeys [] MỚI mỗi lần
+  // render khi query rỗng — so sánh theo tham chiếu sẽ sai nếu không có điều kiện chặn này.
+  if (isFiltering || prevFilter.filtering) {
+    if (isFiltering !== prevFilter.filtering || expandKeys !== prevFilter.expandKeys) {
+      if (isFiltering && !prevFilter.filtering) {
+        // Vừa bắt đầu một lượt lọc mới: gieo từ trạng thái người dùng + nhánh tự mở do lọc.
+        setFilterExpandedKeys(Array.from(new Set([...userExpandedKeys, ...expandKeys])));
+      } else if (isFiltering) {
+        // Vẫn đang lọc (gõ thêm/xóa ký tự, hoặc cây tải thêm dữ liệu): chỉ mở thêm nhánh MỚI
+        // xuất hiện trong expandKeys — không đụng tới nhánh người dùng đã tự thu trong lúc lọc.
+        const newlyAdded = expandKeys.filter((k) => !prevFilter.expandKeys.includes(k));
+        if (newlyAdded.length > 0) {
+          setFilterExpandedKeys((prev) => Array.from(new Set([...prev, ...newlyAdded])));
+        }
+      }
+      setPrevFilter({ filtering: isFiltering, expandKeys });
+    }
+  }
+
+  // Khi lọc: dùng trạng thái mở riêng của lượt lọc. Xóa ô lọc -> quay lại đúng userExpandedKeys,
+  // không bị ảnh hưởng bởi bất kỳ thao tác mở/thu nào đã làm trong lúc lọc.
+  const expandedKeys = isFiltering ? filterExpandedKeys : userExpandedKeys;
 
   const loadRoot = async (conn: StoredConnection) => {
     try {
@@ -234,15 +267,12 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     }
   };
 
-  // onExpand khi đang lọc trả về TOÀN BỘ key đang mở (gồm cả key tự mở do lọc),
-  // nên không thể gán thẳng vào userExpandedKeys — phải loại các key tự mở do lọc,
-  // trừ khi người dùng đã mở key đó từ trước khi lọc (thì vẫn là của người dùng).
+  // Trong lúc lọc: ghi thẳng vào filterExpandedKeys, KHÔNG đụng userExpandedKeys — nhờ vậy khi
+  // xóa ô lọc, cây quay lại đúng các nhánh người dùng đã mở TRƯỚC khi lọc, kể cả nếu trong lúc
+  // lọc họ có thu một nhánh vốn đang mở từ trước (coi đó là xem tạm, không phải quyết định mới).
   const handleExpand = (keys: React.Key[]) => {
-    if (!query.trim()) {
-      setUserExpandedKeys(keys);
-      return;
-    }
-    setUserExpandedKeys(keys.filter((k) => !expandKeys.includes(String(k)) || userExpandedKeys.includes(k)));
+    if (isFiltering) setFilterExpandedKeys(keys);
+    else setUserExpandedKeys(keys);
   };
 
   return (
