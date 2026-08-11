@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Modal, Space, Spin, Table, Tag, Typography, message } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
-import type { AlterOperation, ColumnInfo, ColumnSpec, DataTarget, DbKind, TableStructure } from '@shared/types';
+import type { ColumnsType } from 'antd/es/table';
+import type {
+  AlterOperation,
+  ColumnInfo,
+  ColumnSpec,
+  DataTarget,
+  DbKind,
+  ForeignKeyInfo,
+  TableStructure,
+} from '@shared/types';
 import { ColumnFormModal } from './ColumnFormModal';
 import { IndexFormModal } from './IndexFormModal';
 
@@ -156,6 +165,19 @@ export function StructureView({ connectionId, target, kind, canAlter }: Props) {
       : []),
   ];
 
+  const fkCols: ColumnsType<ForeignKeyInfo> = [
+    { title: 'Tên', dataIndex: 'name', key: 'name' },
+    { title: 'Cột', key: 'columns', render: (_, r) => r.columns.join(', ') },
+    {
+      title: 'Tham chiếu',
+      key: 'ref',
+      render: (_, r) =>
+        `${r.refSchema ? `${r.refSchema}.` : ''}${r.refTable} (${r.refColumns.join(', ')})`,
+    },
+    { title: 'ON DELETE', dataIndex: 'onDelete', key: 'onDelete', render: (v?: string) => v ?? '—' },
+    { title: 'ON UPDATE', dataIndex: 'onUpdate', key: 'onUpdate', render: (v?: string) => v ?? '—' },
+  ];
+
   return (
     <Spin spinning={loading} wrapperClassName="grid-spin">
       <div style={{ padding: 16, overflow: 'auto', height: '100%' }}>
@@ -205,6 +227,21 @@ export function StructureView({ connectionId, target, kind, canAlter }: Props) {
           dataSource={struct?.indexes ?? []}
           bordered
           locale={{ emptyText: 'Không có index' }}
+        />
+
+        <Space style={{ margin: '24px 0 8px', width: '100%', justifyContent: 'space-between' }}>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            Khóa ngoại ({struct?.foreignKeys.length ?? 0})
+          </Typography.Title>
+        </Space>
+        <Table
+          size="small"
+          rowKey="name"
+          pagination={false}
+          columns={fkCols}
+          dataSource={struct?.foreignKeys ?? []}
+          bordered
+          locale={{ emptyText: 'Không có khóa ngoại' }}
         />
       </div>
 
