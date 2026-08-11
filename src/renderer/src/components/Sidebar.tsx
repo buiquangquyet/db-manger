@@ -59,7 +59,10 @@ function iconFor(type: TreeNode['type']): React.ReactNode {
   }
 }
 
-/** Bọc phần khớp trong nhãn bằng <mark> để dễ nhìn khi đang lọc. */
+/**
+ * Bọc phần khớp trong nhãn bằng <mark> để dễ nhìn khi đang lọc.
+ * Giả định khớp với logic của filterTree: substring, không phân biệt hoa/thường.
+ */
 function highlight(title: string, query: string): React.ReactNode {
   const q = query.trim();
   if (!q) return title;
@@ -231,6 +234,17 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     }
   };
 
+  // onExpand khi đang lọc trả về TOÀN BỘ key đang mở (gồm cả key tự mở do lọc),
+  // nên không thể gán thẳng vào userExpandedKeys — phải loại các key tự mở do lọc,
+  // trừ khi người dùng đã mở key đó từ trước khi lọc (thì vẫn là của người dùng).
+  const handleExpand = (keys: React.Key[]) => {
+    if (!query.trim()) {
+      setUserExpandedKeys(keys);
+      return;
+    }
+    setUserExpandedKeys(keys.filter((k) => !expandKeys.includes(String(k)) || userExpandedKeys.includes(k)));
+  };
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -270,7 +284,7 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
             treeData={visibleNodes as unknown as DataNode[]}
             expandedKeys={expandedKeys}
             autoExpandParent={false}
-            onExpand={(keys) => setUserExpandedKeys(keys)}
+            onExpand={handleExpand}
             loadData={onLoadData}
             onSelect={onSelect}
             onDoubleClick={(_e, node) => {
