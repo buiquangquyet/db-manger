@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { CellValueChangedEvent, ColDef, GridApi, GridReadyEvent } from 'ag-grid-community';
 import { Button, Dropdown, Input, Modal, Pagination, Space, Spin, message } from 'antd';
-import { DeleteOutlined, DownloadOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, PlusOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
 import type { ColumnFilter, DataTarget, IoFormat, RowSet } from '@shared/types';
@@ -246,6 +246,9 @@ export function DataGridView({ connectionId, target, inlineEdit, documentEdit, c
         }}
       >
         <Space>
+          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={() => void load(page)}>
+            Tải lại
+          </Button>
           <Button size="small" icon={<PlusOutlined />} disabled={!canInsert} onClick={handleAddClick}>
             Thêm dòng
           </Button>
