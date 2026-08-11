@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
-import { Button, Dropdown, Select, Space, message } from 'antd';
+import { Button, Checkbox, Dropdown, Modal, Select, Space, Table, Tabs, Tag, message } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { CaretRightOutlined, DownloadOutlined } from '@ant-design/icons';
 import { monaco } from '../monaco-setup';
 import { setActiveSchema, clearActiveSchema } from '../sql-completion';
-import type { QueryResult, QueryTarget, RowSet, StoredConnection } from '@shared/types';
+import type { QueryHistoryEntry, QueryResult, QueryTarget, RowSet, StoredConnection } from '@shared/types';
 
 /** Loại DB có khái niệm đích chạy chọn được trong panel (khớp phạm vi v2 của spec). */
 const TARGETABLE = ['mariadb', 'postgres'] as const;
@@ -56,6 +57,17 @@ export function QueryPanel({
   const [targetDb, setTargetDb] = useState<string | undefined>(database ?? schema);
   const [dbOptions, setDbOptions] = useState<string[]>([]);
   const [loadingDbs, setLoadingDbs] = useState(false);
+  const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
+  const [onlyThisConn, setOnlyThisConn] = useState(true);
+  const [bottomTab, setBottomTab] = useState<'result' | 'history'>('result');
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistory(await window.api.listQueryHistory());
+    } catch (err) {
+      message.error(`Không đọc được lịch sử: ${(err as Error).message}`);
+    }
+  }, []);
 
   // Chỉ kết nối SQL mới chọn được đích; Mongo/Redis giữ nguyên hành vi cũ.
   const hostOptions = useMemo(
@@ -154,6 +166,11 @@ export function QueryPanel({
     };
   }, [targetConnId, queryTarget, language]);
 
+  // Nạp lịch sử khi mount, để tab Lịch sử có dữ liệu ngay cả khi chưa chạy query nào.
+  useEffect(() => {
+    void loadHistory();
+  }, [loadHistory]);
+
   const run = async () => {
     const query = editorRef.current?.getValue() ?? '';
     if (!query.trim()) return;
@@ -166,6 +183,10 @@ export function QueryPanel({
       setResult(null);
     } finally {
       setRunning(false);
+      // Nạp lại lịch sử sau MỌI lần chạy (cả lỗi) để tab Lịch sử luôn khớp với file lưu ở
+      // main — bắt buộc phải ở đây, không ở nhánh try/catch, để không bị bỏ sót khi rewrite
+      // run() cho tính năng hủy query (queryId, chọn vùng chạy...).
+      void loadHistory();
     }
   };
 
@@ -180,6 +201,41 @@ export function QueryPanel({
       message.error(`Lưu thất bại: ${(err as Error).message}`);
     }
   };
+
+  const visibleHistory = useMemo(
+    () => (onlyThisConn ? history.filter((h) => h.connectionId === targetConnId) : history),
+    [history, onlyThisConn, targetConnId],
+  );
+
+  const historyCols: ColumnsType<QueryHistoryEntry> = [
+    {
+      title: 'Lúc',
+      dataIndex: 'startedAt',
+      width: 150,
+      render: (t: number) => new Date(t).toLocaleString('vi-VN'),
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      width: 100,
+      render: (s: QueryHistoryEntry['status']) => (
+        <Tag color={s === 'ok' ? 'green' : 'red'}>{s === 'ok' ? 'OK' : 'Lỗi'}</Tag>
+      ),
+    },
+    { title: 'ms', dataIndex: 'durationMs', width: 80, align: 'right', render: (v: number) => v.toFixed(0) },
+    { title: 'Dòng', dataIndex: 'rowCount', width: 80, align: 'right', render: (v?: number) => v ?? '—' },
+    ...(onlyThisConn
+      ? []
+      : [
+          {
+            title: 'Kết nối',
+            dataIndex: 'connectionId',
+            width: 160,
+            render: (id: string) => connections.find((c) => c.id === id)?.name ?? id,
+          } as ColumnsType<QueryHistoryEntry>[number],
+        ]),
+    { title: 'SQL', dataIndex: 'sql', ellipsis: true },
+  ];
 
   const columnDefs: ColDef[] =
     result?.rowSet?.columns.map((c) => ({
@@ -249,16 +305,79 @@ export function QueryPanel({
         </Space>
       </div>
       <div className="query-editor" ref={editorHost} />
-      <div className="grid-wrap ag-theme-quartz">
-        {result?.rowSet ? (
-          <AgGridReact
-            rowData={result.rowSet.rows}
-            columnDefs={columnDefs}
-            defaultColDef={{ minWidth: 120, filter: true }}
-          />
-        ) : (
-          <pre className="result-message">{result?.message ?? '(chưa có kết quả)'}</pre>
-        )}
+      <div className="grid-wrap">
+        <Tabs
+          style={{ height: '100%' }}
+          className="full-height-tabs"
+          activeKey={bottomTab}
+          onChange={(k) => setBottomTab(k as 'result' | 'history')}
+          items={[
+            {
+              key: 'result',
+              label: 'Kết quả',
+              children: (
+                <div className="ag-theme-quartz" style={{ height: '100%' }}>
+                  {result?.rowSet ? (
+                    <AgGridReact
+                      rowData={result.rowSet.rows}
+                      columnDefs={columnDefs}
+                      defaultColDef={{ minWidth: 120, filter: true }}
+                    />
+                  ) : (
+                    <pre className="result-message">{result?.message ?? '(chưa có kết quả)'}</pre>
+                  )}
+                </div>
+              ),
+            },
+            {
+              key: 'history',
+              label: 'Lịch sử',
+              children: (
+                <div style={{ height: '100%', overflow: 'auto', padding: 8 }}>
+                  <Space style={{ marginBottom: 8 }}>
+                    <Checkbox checked={onlyThisConn} onChange={(e) => setOnlyThisConn(e.target.checked)}>
+                      Chỉ kết nối này
+                    </Checkbox>
+                    <Button
+                      size="small"
+                      danger
+                      onClick={() =>
+                        Modal.confirm({
+                          title: 'Xóa toàn bộ lịch sử query?',
+                          content: 'Không thể hoàn tác.',
+                          okText: 'Xóa',
+                          okType: 'danger',
+                          cancelText: 'Hủy',
+                          onOk: async () => {
+                            await window.api.clearQueryHistory();
+                            await loadHistory();
+                          },
+                        })
+                      }
+                    >
+                      Xóa lịch sử
+                    </Button>
+                  </Space>
+                  <Table<QueryHistoryEntry>
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    columns={historyCols}
+                    dataSource={visibleHistory}
+                    locale={{ emptyText: 'Chưa có query nào' }}
+                    onRow={(r) => ({
+                      style: { cursor: 'pointer' },
+                      onClick: () => {
+                        editorRef.current?.setValue(r.sql);
+                        setBottomTab('result');
+                      },
+                    })}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );
