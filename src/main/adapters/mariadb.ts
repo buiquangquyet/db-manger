@@ -8,6 +8,7 @@ import type {
   DatabaseAdapter,
   PageRequest,
   QueryResult,
+  QueryTarget,
   RowSet,
   SchemaObject,
   TableStructure,
@@ -396,11 +397,12 @@ export class MariaDbAdapter implements DatabaseAdapter {
     }
   }
 
-  async executeRaw(query: string, database?: string): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
     const started = process.hrtime.bigint();
     const conn = await this.db().getConnection();
     try {
-      if (database) await conn.query(`USE ${quoteIdentMysql(database)}`);
+      // USE chạy trên đúng connection đang mượn nên không rò sang query khác của pool.
+      if (target?.database) await conn.query(`USE ${quoteIdentMysql(target.database)}`);
       const [result, fields] = await conn.query(query);
       const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
 

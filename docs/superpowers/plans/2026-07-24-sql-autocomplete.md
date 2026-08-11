@@ -582,3 +582,76 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 **Type consistency:** `SchemaObject{table,columns}`, `getSchemaObjects(database?,schema?)`, `computeSuggestions(textUntilCursor, fullText, schema)`, `setActiveSchema/clearActiveSchema`, `registerSqlCompletion(monaco)` khớp giữa Tasks 1/2/3/4. Helper `groupColumnsByTable({t,c}[])` dùng chung 2 adapter (DRY, không trùng lặp logic block). ✓
 
 **Giới hạn (khớp spec §6):** không refresh schema thủ công (đổi tab/mở lại để nạp lại); alias chỉ FROM/JOIN cấp một; một database; heuristic regex (không parser đầy đủ).
+
+---
+
+# v2 (2026-08-11): chọn đích chạy query
+
+**Spec:** mục 7-13 của `docs/superpowers/specs/2026-07-24-sql-autocomplete-design.md`
+**Branch:** `fix/query-target-selector` (tách từ `main` sau khi PR #3 merge)
+
+**Goal:** Query chạy đúng nơi người dùng chọn, và autocomplete bám cùng nơi đó. Thêm hai select (server host, database/schema) trước nút Chạy.
+
+**Architecture:** Đổi tham số thứ ba của `executeRaw` từ `database?: string` sang `QueryTarget { database?, schema? }` xuyên suốt shared → IPC → preload → 4 adapter. Postgres phải mượn client riêng để `SET search_path` áp đúng query. `QueryPanel` giữ state đích riêng, mặc định theo prop từ sidebar và bị prop ghi đè mỗi lần sidebar đổi.
+
+## Global Constraints (v2)
+
+- Gate: `npm run typecheck` + `npm run build` phải PASS.
+- Chỉ MariaDB + Postgres có select. Mongo/Redis đổi chữ ký nhưng **giữ nguyên hành vi** (mongo dùng `target.database` làm tên db, redis làm index).
+- `RendererApi` là interface preload phải hiện thực đầy đủ — đổi chữ ký ở `RendererApi` bắt buộc sửa preload cùng lúc, nếu không `typecheck:node` fail.
+- Nhãn UI tiếng Việt. Nhãn select đổi theo loại DB: `Database` (MariaDB) / `Schema` (Postgres).
+- Không dùng `App.handleOpen` để mở phiên từ QueryPanel — nó reset session/target/tab và unmount chính panel đó. Gọi thẳng `window.api.openSession(id)`.
+- Commit message kết thúc bằng: `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`
+
+## File Structure (v2)
+
+| File | Việc |
+|---|---|
+| `src/shared/types.ts` | `QueryTarget`; `DatabaseAdapter.executeRaw`; `RendererApi.executeQuery` |
+| `src/preload/index.ts` | `executeQuery` nhận `target` |
+| `src/main/ipc.ts` | handler `query:execute` chuyển `target` |
+| `src/main/adapters/mariadb.ts` | đọc `target.database` |
+| `src/main/adapters/postgres.ts` | mượn client + `SET search_path` |
+| `src/main/adapters/mongo.ts`, `redis.ts` | đổi chữ ký, giữ hành vi |
+| `src/renderer/src/components/QueryPanel.tsx` | hai select, state đích, autocomplete theo đích, truyền `target` |
+| `src/renderer/src/App.tsx` | truyền `connections` xuống `QueryPanel` |
+
+---
+
+### Task v2-1: Contract `QueryTarget` xuyên các lớp
+
+Đổi chữ ký ở shared, preload, IPC và cả 4 adapter trong một task — chia nhỏ hơn sẽ để typecheck đỏ giữa chừng.
+
+- [ ] `src/shared/types.ts`: thêm `export interface QueryTarget { database?: string; schema?: string }`; đổi `DatabaseAdapter.executeRaw(query: string, target?: QueryTarget)`; đổi `RendererApi.executeQuery(connectionId, query, target?: QueryTarget)`.
+- [ ] `src/preload/index.ts:72`: `executeQuery: (connectionId, query, target?: QueryTarget) => ipcRenderer.invoke(IpcChannels.queryExecute, connectionId, query, target)`.
+- [ ] `src/main/ipc.ts:143`: handler nhận `target?: QueryTarget`, gọi `executeRaw(query, target)`.
+- [ ] `mariadb.ts:399`: `executeRaw(query, target?)`; `if (target?.database) await conn.query(\`USE ${quoteIdentMysql(target.database)}\`)`.
+- [ ] `mongo.ts:202`: `executeRaw(query, target?)`; `this.c().db(target?.database ?? this.config.database)`.
+- [ ] `redis.ts:247`: `executeRaw(query, target?)`; `if (target?.database !== undefined) await this.r().select(Number(target.database))`.
+- [ ] Gate: `npm run typecheck`.
+
+### Task v2-2: Postgres `SET search_path` trên cùng client
+
+- [ ] `postgres.ts:452`: đổi `executeRaw(query)` thành `executeRaw(query, target?: QueryTarget)`. Mượn client bằng `const client = await this.db().connect()`, trong `try`: nếu `target?.schema` thì `await client.query(\`SET search_path TO ${quoteIdentPg(target.schema)}\`)`, rồi `const res = await client.query(query)`; `finally { client.release() }`. Phần dựng `QueryResult` giữ nguyên.
+- [ ] Lý do bắt buộc dùng cùng client: `pool.query()` có thể rơi vào client khác nhau giữa hai lần gọi, `SET search_path` bắn rời sẽ không áp cho query sau.
+- [ ] Gate: `npm run typecheck`.
+
+### Task v2-3: Hai select trong QueryPanel
+
+- [ ] Props mới: `connections: StoredConnection[]`, `kind: DbKind`.
+- [ ] State: `targetConnId`, `targetDb` (dùng chung cho database của MariaDB và schema của Postgres), `dbOptions: string[]`, `loadingDbs`.
+- [ ] `useEffect` phụ thuộc `[connectionId, database, schema]` → `setTargetConnId(connectionId)`, `setTargetDb(database ?? schema)`. Đây là cơ chế "sidebar luôn ghi đè".
+- [ ] `useEffect` phụ thuộc `[targetConnId]` → `openSession` nếu cần rồi `getRootNodes(targetConnId)`, map `meta.database ?? meta.schema` thành `dbOptions`. Lỗi → `message.error`, `dbOptions = []`.
+- [ ] Effect autocomplete đổi phụ thuộc từ prop sang `[targetConnId, targetDb, language]`.
+- [ ] `run()` dựng `target` theo kind của kết nối đích: postgres → `{ schema: targetDb }`, còn lại → `{ database: targetDb }`; gọi `executeQuery(targetConnId, query, target)`.
+- [ ] Hai `Select` (`size="small"`, `showSearch`) đặt trước nút Chạy trong `Space`.
+- [ ] Gate: `npm run typecheck` + `npm run build`.
+
+### Task v2-4: App truyền connections
+
+- [ ] `App.tsx:117`: thêm `connections={connections}` và `kind={session.connection.kind}` vào `<QueryPanel>`.
+- [ ] Gate: `npm run typecheck` + `npm run build`.
+
+### Kiểm tay (không tự động hóa được)
+
+Theo mục 12 của spec — 6 ca, quan trọng nhất là ca lỗi gốc: sidebar chọn database chứa `coupons`, bấm Chạy, không còn báo `Table '<db mặc định>.coupons' doesn't exist`.

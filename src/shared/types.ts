@@ -197,6 +197,17 @@ export type AlterOperation =
   | { kind: 'addIndex'; name: string; columns: string[]; unique: boolean }
   | { kind: 'dropIndex'; name: string };
 
+/**
+ * Đích chạy một query tự do. Mỗi loại DB dùng trường hợp lệ với mô hình của nó:
+ * MariaDB `USE database`; Postgres `SET search_path TO schema` (pool gắn cứng vào
+ * một database nên không đổi database được); Mongo lấy `database` làm tên db;
+ * Redis lấy `database` làm số hiệu db.
+ */
+export interface QueryTarget {
+  database?: string;
+  schema?: string;
+}
+
 /** Kết quả chạy query tự do. */
 export interface QueryResult {
   /** Nếu query trả về bảng. */
@@ -323,8 +334,8 @@ export interface DatabaseAdapter {
   /** (SQL) Lấy toàn bộ bảng + cột của một database/schema trong 1 truy vấn — cho autocomplete. */
   getSchemaObjects?(database?: string, schema?: string): Promise<SchemaObject[]>;
 
-  /** Chạy query/command tự do (SQL, mongo shell, redis command). */
-  executeRaw(query: string, database?: string): Promise<QueryResult>;
+  /** Chạy query/command tự do (SQL, mongo shell, redis command) tại `target`. */
+  executeRaw(query: string, target?: QueryTarget): Promise<QueryResult>;
 
   /**
    * Cập nhật một ô dữ liệu.
@@ -446,7 +457,7 @@ export interface RendererApi {
     ejson: string,
   ): Promise<void>;
   insertDocument(connectionId: string, target: DataTarget, ejson: string): Promise<void>;
-  executeQuery(connectionId: string, query: string, database?: string): Promise<QueryResult>;
+  executeQuery(connectionId: string, query: string, target?: QueryTarget): Promise<QueryResult>;
   /** Xuất toàn bộ dữ liệu một bảng ra file (mở hộp thoại lưu). */
   exportTable(connectionId: string, target: DataTarget, format: IoFormat): Promise<ExportResult>;
   /** Nhập dữ liệu vào một bảng từ file CSV/JSON, hoặc chạy file .sql. */

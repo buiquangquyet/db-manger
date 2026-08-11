@@ -177,9 +177,162 @@ Không có test framework. Gate: `npm run typecheck` + `npm run build`.
 
 ## 6. Giới hạn đã biết (v1)
 
+<!-- ĐÃ SỬA Ở v2 — xem mục 7. Giới hạn thứ ba dưới đây là nguồn gốc của một lỗi thật. -->
+
+
 - Không refresh schema thủ công; schema đổi (tạo/xóa bảng) cần chuyển tab hoặc mở lại
   query panel để nạp lại metadata.
 - Alias resolve chỉ ở FROM/JOIN cấp một; subquery/CTE không được xử lý.
 - Không qualify nhiều database; chỉ database/schema đang chọn.
 - Không phân tích cú pháp SQL đầy đủ — heuristic regex quanh con trỏ; một số ngữ cảnh
   hiếm có thể gợi ý chưa tối ưu (chấp nhận cho v1).
+
+---
+
+# v2 (2026-08-11): chọn đích chạy query
+
+Trạng thái: đã duyệt thiết kế, đang hiện thực trên branch `fix/query-target-selector`.
+
+## 7. Lỗi v1 để lại
+
+v1 đưa `database`/`schema` đang chọn xuống `QueryPanel` **chỉ để nạp metadata cho
+autocomplete** (mục 3.4). Nút Chạy vẫn gọi `window.api.executeQuery(connectionId, query)`
+bỏ trống tham số thứ ba, nên query rơi vào database mặc định của kết nối.
+
+Hậu quả quan sát được: autocomplete gợi ý `coupons` của database đang xem, chạy thì báo
+
+```
+Error invoking remote method 'query:execute': Error: Table 'kvshipping_dev.coupons' doesn't exist
+```
+
+Hai nguồn sự thật lệch nhau — gợi ý theo một nơi, thực thi ở nơi khác. Sửa lỗi này chỉ
+cần truyền thêm một tham số, nhưng v2 giải quyết luôn gốc: đích chạy query trở thành thứ
+người dùng **nhìn thấy và chọn được**, và autocomplete bám theo đúng đích đó.
+
+## 8. Phạm vi v2
+
+Trong phạm vi:
+
+- Hai select đặt trước nút Chạy trong `QueryPanel`: **server host** và **database/schema**.
+- Giá trị mặc định lấy theo kết nối + database đang chọn ở sidebar.
+- Chỉ **MariaDB/MySQL và Postgres**. Mongo/Redis giữ nguyên hành vi hiện tại.
+- Autocomplete nạp theo đích đã chọn trong panel, không còn theo prop từ sidebar.
+
+Ngoài phạm vi:
+
+- Postgres cross-database (xem 9.2).
+- Chọn đích cho Mongo/Redis.
+- Nhớ đích đã chọn giữa các lần mở app.
+
+## 9. Quyết định thiết kế
+
+| Câu hỏi | Chọn | Lý do |
+|---|---|---|
+| Loại DB được hỗ trợ | MariaDB + Postgres | Đúng phạm vi `language === 'sql'` của v1 |
+| Select thứ hai với Postgres | **schema**, không phải database | Xem 9.2 |
+| Nguồn danh sách host | mọi kết nối SQL đã lưu, tự mở phiên khi chọn | Không bắt mở tab trước |
+| Sidebar đổi database | **luôn ghi đè** select | Khớp yêu cầu "mặc định là db đang chọn" |
+
+### 9.1 `QueryTarget` — đích đến tường minh
+
+`executeRaw(query, database?)` hiện chỉ MariaDB hiểu; Postgres bỏ qua hoàn toàn
+(`postgres.ts:452` không nhận tham số). Với Postgres thứ chọn được là *schema* chứ không
+phải database, nên nhồi cả hai nghĩa vào một tham số tên `database` sẽ nói dối chỗ gọi.
+
+```ts
+export interface QueryTarget {
+  /** MariaDB: USE <database>. Mongo: tên db. Redis: số hiệu db. */
+  database?: string;
+  /** Postgres: SET search_path TO <schema>. */
+  schema?: string;
+}
+
+executeRaw(query: string, target?: QueryTarget): Promise<QueryResult>;
+```
+
+Hành vi từng adapter:
+
+- **MariaDB** — `USE` như cũ, đọc từ `target.database`. Đã mượn connection riêng
+  (`getConnection()`) nên `USE` không rò sang query khác.
+- **Postgres** — thay đổi thực chất, không chỉ đổi tên tham số. Hiện `executeRaw` gọi
+  `this.db().query(...)` thẳng trên pool, mỗi lần có thể rơi vào client khác nhau, nên
+  bắn `SET search_path` rời sẽ không đảm bảo áp cho query kế tiếp. Phải mượn một client
+  (`pool.connect()`), chạy `SET search_path TO <ident>` rồi chạy query trên **cùng**
+  client, `release()` trong `finally` — đúng khuôn MariaDB.
+- **Mongo / Redis** — đổi chữ ký cho khớp interface, đọc `target.database` thay cho tham
+  số phẳng. Hành vi giữ nguyên: mongo chọn db theo tên, redis `SELECT <index>`.
+
+IPC `query:execute` và preload đổi tham số thứ ba từ `database?: string` sang
+`target?: QueryTarget`. Không thêm channel mới.
+
+### 9.2 Vì sao Postgres chọn schema
+
+`pg.Pool` gắn cứng vào database lúc connect. Cho chọn database thật đồng nghĩa phải mở
+pool phụ cho mỗi database và quản vòng đời của chúng. Ngoài ra `getRootNodes` của
+Postgres (`postgres.ts:76-77`) vốn chỉ liệt kê schema kèm comment "Postgres không
+cross-database dễ dàng" — cây sidebar cũng không cho thấy database khác. Chọn schema giữ
+panel nhất quán với những gì người dùng đang nhìn thấy, và không phát sinh vòng đời kết
+nối mới.
+
+### 9.3 Không cần IPC mới để liệt kê
+
+`window.api.getRootNodes(connectionId)` sẵn có trả đúng thứ cần: MariaDB → node
+`type: 'database'` kèm `meta.database`; Postgres → node `type: 'schema'` kèm `meta.schema`.
+Dùng lại nguyên, không thêm channel.
+
+## 10. UI và luồng trong QueryPanel
+
+Thanh công cụ: `[Select host] [Select database/schema] [Chạy] [Xuất kết quả] [thời gian]`.
+
+- **Select host** — options là các kết nối đã lưu có `kind` ∈ {mariadb, postgres}.
+  `QueryPanel` nhận thêm prop `connections: StoredConnection[]` từ `App`.
+- **Select database/schema** — nạp bằng `getRootNodes(selectedConnectionId)`, map
+  `meta.database ?? meta.schema` thành options. Nhãn đổi theo loại DB: `Database` cho
+  MariaDB, `Schema` cho Postgres.
+- **Mở phiên khi cần** — chọn một host chưa mở phiên thì gọi `window.api.openSession(id)`
+  trực tiếp. **Không** dùng `App.handleOpen`: hàm đó reset `session`/`target`/`dbSelection`
+  và chuyển tab, sẽ unmount chính panel đang thao tác.
+- **Sidebar ghi đè** — `useEffect` phụ thuộc `[connectionId, database, schema]` (các prop
+  do `App` tính) đặt lại state của panel. Prop chỉ đổi khi người dùng bấm ở sidebar, nên
+  lựa chọn tay được giữ cho tới lần bấm sidebar kế tiếp.
+- **Autocomplete bám đích** — effect nạp `getSchemaObjects` chuyển sang phụ thuộc state
+  đã chọn trong panel thay vì prop. Đây là điểm khép lại lỗi ở mục 7: gợi ý và thực thi
+  dùng chung một nguồn sự thật.
+
+## 11. Xử lý lỗi v2
+
+- Mở phiên host thất bại → `message.error`, select host quay về giá trị trước đó, danh
+  sách database giữ nguyên của host cũ.
+- `getRootNodes` thất bại → `message.error`, select database rỗng và bị vô hiệu; nút Chạy
+  vẫn dùng được với đích rỗng (chạy vào db mặc định của kết nối).
+- Chạy query thất bại → giữ nguyên `message.error` sẵn có.
+- Nạp `getSchemaObjects` thất bại → vẫn nuốt như v1, chỉ mất autocomplete.
+
+## 12. Kiểm thử v2
+
+Không có test framework; gate là `npm run typecheck` + `npm run build`.
+
+Không phát sinh hàm thuần mới đáng kể — phần logic là mapping `TreeNode[]` → options,
+đủ nhỏ để đọc thẳng. Kiểm tay trong `npm run dev`:
+
+1. MariaDB: chọn database B ở select trong khi sidebar đang ở A → `SELECT * FROM <bảng của B>`
+   phải chạy được, và autocomplete phải gợi ý bảng của B.
+2. Đúng ca lỗi gốc: sidebar chọn database có bảng `coupons`, bấm Chạy → không còn báo
+   `Table '<db mặc định>.coupons' doesn't exist`.
+3. Đổi host sang một kết nối **chưa mở tab** → phiên tự mở, danh sách database nạp được.
+4. Postgres: đổi schema → query không qualify schema phải trỏ đúng schema đã chọn.
+5. Bấm database khác ở sidebar sau khi đã tự đổi select → select nhảy theo sidebar.
+6. Host lỗi (tắt server) → báo lỗi, select quay về giá trị cũ.
+
+## 13. Cấu trúc file v2
+
+- `src/shared/types.ts` (modify) — `QueryTarget`; `DatabaseAdapter.executeRaw`;
+  `RendererApi.executeQuery`.
+- `src/preload/index.ts` (modify) — `executeQuery` nhận `target`.
+- `src/main/ipc.ts` (modify) — handler `query:execute` chuyển `target`.
+- `src/main/adapters/mariadb.ts` (modify) — đọc `target.database`.
+- `src/main/adapters/postgres.ts` (modify) — mượn client + `SET search_path`.
+- `src/main/adapters/mongo.ts`, `redis.ts` (modify) — đổi chữ ký, giữ hành vi.
+- `src/renderer/src/components/QueryPanel.tsx` (modify) — hai select, state đích,
+  autocomplete theo đích, truyền `target` khi chạy.
+- `src/renderer/src/App.tsx` (modify) — truyền `connections` xuống `QueryPanel`.

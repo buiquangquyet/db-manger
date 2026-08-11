@@ -6,6 +6,7 @@ import type {
   DatabaseAdapter,
   PageRequest,
   QueryResult,
+  QueryTarget,
   RowSet,
   TableStructure,
   TableSummary,
@@ -244,9 +245,9 @@ export class RedisAdapter implements DatabaseAdapter {
   }
 
   /** Chạy command tự do, ví dụ: GET foo | HGETALL user:1 | KEYS * */
-  async executeRaw(query: string, database?: string): Promise<QueryResult> {
+  async executeRaw(query: string, target?: QueryTarget): Promise<QueryResult> {
     const started = process.hrtime.bigint();
-    if (database !== undefined) await this.r().select(Number(database));
+    if (target?.database !== undefined) await this.r().select(Number(target.database));
     const parts = this.tokenize(query);
     if (!parts.length) return { message: '(lệnh rỗng)', durationMs: 0 };
 
