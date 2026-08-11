@@ -94,12 +94,13 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);
   // Chuỗi lọc cây (client-side, chỉ trên node đã tải).
   const [query, setQuery] = useState('');
-  // Trạng thái mở do người dùng tự bấm KHI KHÔNG LỌC — nguồn sự thật để quay lại sau khi xóa ô
-  // lọc. Bị "đóng băng" trong lúc lọc: không ghi gì vào đây khi query đang có giá trị, để thao
-  // tác mở/thu trong lúc lọc (chỉ là xem tạm) không làm mất trạng thái gốc của người dùng.
+  // Trạng thái mở "thật" của người dùng — nguồn sự thật để quay lại sau khi xóa ô lọc. Trong
+  // lúc lọc, chỗ này chỉ CỘNG THÊM khi người dùng chủ động mở một nhánh mới (xem handleExpand),
+  // không bao giờ bị RÚT bớt do thao tác thu lại trong lúc lọc — thu một nhánh trong lúc lọc chỉ
+  // là xem tạm, không phải huỷ bỏ trạng thái gốc.
   const [userExpandedKeys, setUserExpandedKeys] = useState<React.Key[]>([]);
-  // Trạng thái mở riêng cho lúc đang lọc — người dùng có thể tự mở/thu thêm trong lúc lọc mà
-  // không đụng userExpandedKeys; bị bỏ hẳn khi xóa ô lọc (không mang gì sang lượt lọc sau).
+  // Trạng thái mở dùng để hiển thị TRONG lúc lọc (đầy đủ, gồm cả key tự mở do lọc và các lượt
+  // mở/thu người dùng tự làm khi đang lọc); bị bỏ hẳn khi xóa ô lọc, không mang gì sang lượt sau.
   const [filterExpandedKeys, setFilterExpandedKeys] = useState<React.Key[]>([]);
   // "Ảnh chụp" lượt render trước: có đang lọc không, và expandKeys lúc đó là gì — để phân biệt
   // "vừa bắt đầu lọc" (cần gieo filterExpandedKeys từ userExpandedKeys) với "vẫn đang lọc nhưng
@@ -148,8 +149,9 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     }
   }
 
-  // Khi lọc: dùng trạng thái mở riêng của lượt lọc. Xóa ô lọc -> quay lại đúng userExpandedKeys,
-  // không bị ảnh hưởng bởi bất kỳ thao tác mở/thu nào đã làm trong lúc lọc.
+  // Khi lọc: dùng trạng thái mở riêng của lượt lọc (filterExpandedKeys). Xóa ô lọc -> quay lại
+  // userExpandedKeys — nơi đã có sẵn các nhánh mở từ trước, cộng thêm nhánh mới được MỞ trong
+  // lúc lọc (không có nhánh nào bị THU trong lúc lọc làm mất khỏi đây, xem handleExpand).
   const expandedKeys = isFiltering ? filterExpandedKeys : userExpandedKeys;
 
   const loadRoot = async (conn: StoredConnection) => {
@@ -267,12 +269,22 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     }
   };
 
-  // Trong lúc lọc: ghi thẳng vào filterExpandedKeys, KHÔNG đụng userExpandedKeys — nhờ vậy khi
-  // xóa ô lọc, cây quay lại đúng các nhánh người dùng đã mở TRƯỚC khi lọc, kể cả nếu trong lúc
-  // lọc họ có thu một nhánh vốn đang mở từ trước (coi đó là xem tạm, không phải quyết định mới).
+  // Khi không lọc: ghi thẳng như cũ.
+  // Khi đang lọc: luôn ghi vào filterExpandedKeys (để hiển thị đúng, kể cả THU một nhánh đang
+  // tự mở do lọc). Nếu là lượt MỞ THÊM (so với expandedKeys đang hiển thị xuất hiện key mới) thì
+  // coi đó là quyết định thật của người dùng -> cộng thêm vào userExpandedKeys luôn, để nhánh đó
+  // còn giữ sau khi xóa ô lọc. Ngược lại, lượt THU LẠI không xóa gì khỏi userExpandedKeys — thu
+  // một nhánh trong lúc lọc chỉ là xem tạm, không phải huỷ bỏ trạng thái gốc của người dùng.
   const handleExpand = (keys: React.Key[]) => {
-    if (isFiltering) setFilterExpandedKeys(keys);
-    else setUserExpandedKeys(keys);
+    if (!isFiltering) {
+      setUserExpandedKeys(keys);
+      return;
+    }
+    const addedKeys = keys.filter((k) => !expandedKeys.includes(k));
+    if (addedKeys.length > 0) {
+      setUserExpandedKeys((prev) => Array.from(new Set([...prev, ...addedKeys])));
+    }
+    setFilterExpandedKeys(keys);
   };
 
   return (
