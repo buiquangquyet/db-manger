@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Button, Empty, Menu, Spin, Table, Tag, Typography, message } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Button, Empty, Input, Menu, Space, Spin, Table, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DatabaseOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { DataTarget, DbKind, TableSummary } from '@shared/types';
 import { buildTableMenu } from '../lib/tableActions';
 
@@ -35,11 +35,14 @@ export function DatabaseOverview({ connectionId, kind, database, schema, label, 
   const [loading, setLoading] = useState(false);
   // Vị trí + dòng của menu chuột phải.
   const [ctx, setCtx] = useState<{ row: TableSummary; x: number; y: number } | null>(null);
+  // Chuỗi tìm theo tên bảng (lọc client trên danh sách đã tải).
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setTables(null);
+    setQuery('');
     window.api
       .getTableList(connectionId, database, schema)
       .then((list) => {
@@ -64,6 +67,12 @@ export function DatabaseOverview({ connectionId, kind, database, schema, label, 
       .catch((err: Error) => message.error(`Tải lại thất bại: ${err.message}`))
       .finally(() => setLoading(false));
   };
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tables ?? [];
+    return (tables ?? []).filter((t) => t.name.toLowerCase().includes(q));
+  }, [tables, query]);
 
   const columns: ColumnsType<TableSummary> = [
     {
@@ -135,22 +144,40 @@ export function DatabaseOverview({ connectionId, kind, database, schema, label, 
       >
         <Typography.Title level={5} style={{ margin: 0 }}>
           <DatabaseOutlined /> {label}
-          {tables ? <Typography.Text type="secondary"> · {tables.length} bảng</Typography.Text> : null}
+          {tables ? (
+            <Typography.Text type="secondary">
+              {' · '}
+              {query.trim() ? `${visible.length}/${tables.length}` : tables.length} bảng
+            </Typography.Text>
+          ) : null}
         </Typography.Title>
-        <Button size="small" icon={<ReloadOutlined />} onClick={reload} loading={loading}>
-          Tải lại
-        </Button>
+        <Space>
+          <Input
+            size="small"
+            allowClear
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+            placeholder="Tìm tên bảng…"
+            style={{ width: 220 }}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button size="small" icon={<ReloadOutlined />} onClick={reload} loading={loading}>
+            Tải lại
+          </Button>
+        </Space>
       </div>
       <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
         <Spin spinning={loading}>
           {tables && tables.length === 0 ? (
             <Empty description="Database rỗng — chưa có bảng nào" />
+          ) : tables && visible.length === 0 ? (
+            <Empty description="Không có bảng nào khớp" />
           ) : (
             <Table<TableSummary>
               rowKey="name"
               size="small"
               columns={columns}
-              dataSource={tables ?? []}
+              dataSource={visible}
               pagination={false}
               onRow={(record) => ({
                 style: { cursor: 'pointer' },
