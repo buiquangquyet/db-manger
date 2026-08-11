@@ -538,9 +538,11 @@ export class PostgresAdapter implements DatabaseAdapter {
    * pg_cancel_backend gửi tín hiệu hủy tới backend đang chạy; phải phát từ một client
    * KHÁC vì client đang chạy query bị chặn chờ kết quả.
    *
-   * pg_cancel_backend không throw khi PID không tồn tại hoặc không đủ quyền — nó trả về
-   * boolean false (kèm WARNING ở mức không phải lỗi, không làm promise reject), nên không
-   * cần catch riêng cho hai ca đó. Lỗi thật (mất kết nối, ...) vẫn ném ra như thường.
+   * PID không tồn tại: pg_cancel_backend chỉ ereport(WARNING) rồi trả về false — không
+   * reject, nên ca "hủy muộn" tự im lặng, không cần catch (khác MariaDB, KILL QUERY ném
+   * ER_NO_SUCH_THREAD).
+   * Không đủ quyền: ĐÂY LÀ ereport(ERROR, 42501) — promise SẼ reject. Cố ý không catch:
+   * theo hợp đồng, lỗi quyền thật phải nổi lên cho người dùng thấy, như mất kết nối.
    */
   async cancelQuery(queryId: string): Promise<void> {
     const pid = this.running.get(queryId);
