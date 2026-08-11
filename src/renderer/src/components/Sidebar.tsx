@@ -102,7 +102,9 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   // là xem tạm, không phải huỷ bỏ trạng thái gốc.
   const [userExpandedKeys, setUserExpandedKeys] = useState<React.Key[]>([]);
   // Trạng thái mở dùng để hiển thị TRONG lúc lọc (đầy đủ, gồm cả key tự mở do lọc và các lượt
-  // mở/thu người dùng tự làm khi đang lọc); bị bỏ hẳn khi xóa ô lọc, không mang gì sang lượt sau.
+  // mở/thu người dùng tự làm khi đang lọc). Xóa ô lọc thì chỗ này thôi được đọc (expandedKeys
+  // quay về userExpandedKeys) chứ không bị dọn: mảng cũ nằm lại cho tới khi lượt lọc kế tiếp
+  // gieo lại nó từ userExpandedKeys, nên không mang gì sang lượt sau.
   const [filterExpandedKeys, setFilterExpandedKeys] = useState<React.Key[]>([]);
   // "Ảnh chụp" lượt render trước: có đang lọc không, và expandKeys lúc đó là gì — để phân biệt
   // "vừa bắt đầu lọc" (cần gieo filterExpandedKeys từ userExpandedKeys) với "vẫn đang lọc nhưng
@@ -179,6 +181,12 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     raw: n,
   });
 
+  /** Thu một node lại: bỏ key khỏi CẢ hai trạng thái mở để nó không sống lại khi xóa ô lọc. */
+  const collapseKey = (key: string) => {
+    setUserExpandedKeys((prev) => prev.filter((k) => k !== key));
+    setFilterExpandedKeys((prev) => prev.filter((k) => k !== key));
+  };
+
   const onLoadData = async (node: DataNode): Promise<void> => {
     const ui = node as unknown as UiNode;
     // Mở rộng node kết nối gốc: mở phiên rồi tải toàn bộ database/schema/keyspace bên trong.
@@ -188,13 +196,26 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       return;
     }
     if (!ui.raw || !ui.connectionId) return;
-    const children = await window.api.getChildNodes(ui.connectionId, ui.raw);
-    const uiChildren = children.map((n) => toUi(n, ui.connectionId));
-    // Chèn con vào đúng nhánh của kết nối.
-    setTreeData((prev) => ({
-      ...prev,
-      [ui.connectionId]: insertChildren(prev[ui.connectionId] ?? [], ui.key, uiChildren),
-    }));
+    try {
+      const children = await window.api.getChildNodes(ui.connectionId, ui.raw);
+      const uiChildren = children.map((n) => toUi(n, ui.connectionId));
+      // Chèn con vào đúng nhánh của kết nối.
+      setTreeData((prev) => ({
+        ...prev,
+        [ui.connectionId]: insertChildren(prev[ui.connectionId] ?? [], ui.key, uiChildren),
+      }));
+    } catch (err) {
+      // Từ khi truyền `expandedKeys` có kiểm soát, rc-tree không còn tự thu node khi loadData
+      // hỏng: nhánh rollback của nó gọi setUncontrolledState({expandedKeys, flattenNodes}, atomic)
+      // và bị chặn vì `expandedKeys` giờ là prop. Nó cũng nuốt luôn lỗi. Nên phải tự báo và tự thu,
+      // nếu không node nằm đó mở toang, rỗng, im lặng — người dùng đọc thành "database không bảng".
+      collapseKey(ui.key);
+      message.error(`Tải cây thất bại: ${(err as Error).message}`);
+      // Ném lại để rc-tree KHÔNG đánh dấu node là đã tải — lần mở sau vẫn gọi lại loadData.
+      // Promise này đã có handler của rc-tree (onNodeLoad `.catch` + `loadPromise.catch`) nên
+      // không sinh unhandled rejection.
+      throw err;
+    }
   };
 
   // Tải lại con của node theo key (sau khi thao tác cấu trúc).
