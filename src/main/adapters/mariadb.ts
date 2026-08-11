@@ -473,7 +473,18 @@ export class MariaDbAdapter implements DatabaseAdapter {
     if (threadId === undefined) return; // query đã xong trước khi lệnh hủy tới nơi
     const killer = await this.db().getConnection();
     try {
-      await killer.query(`KILL QUERY ${Number(threadId)}`);
+      // Query có thể đã xong trong lúc chờ mượn connection (pool cạn thì chờ không giới hạn),
+      // connection cũ khi đó đã về pool và có thể đang phục vụ query khác — kiểm lại để
+      // không giết nhầm.
+      if (this.running.get(queryId) !== threadId) return;
+      try {
+        await killer.query(`KILL QUERY ${Number(threadId)}`);
+      } catch (err) {
+        // Thread đã biến mất = query tự xong trước khi lệnh hủy tới nơi. Đúng ca "hủy muộn",
+        // không phải lỗi. Lỗi khác (quyền, mất kết nối) vẫn ném ra.
+        const code = (err as { code?: string }).code;
+        if (code !== 'ER_NO_SUCH_THREAD') throw err;
+      }
     } finally {
       killer.release();
     }
