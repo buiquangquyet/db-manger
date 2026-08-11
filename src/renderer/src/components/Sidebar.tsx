@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Button, Dropdown, Empty, Modal, Tree, message } from 'antd';
+import { Button, Dropdown, Empty, Input, Modal, Tree, message } from 'antd';
 import type { DataNode } from 'antd/es/tree';
 import {
   DatabaseOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   TableOutlined,
   FolderOutlined,
   KeyOutlined,
@@ -15,6 +16,7 @@ import { CreateTableModal } from './CreateTableModal';
 import { TransferModal } from './TransferModal';
 import type { TransferSource } from './TransferModal';
 import { buildTableMenu, promptInput } from '../lib/tableActions';
+import { filterTree, findNode, findParentKey, insertChildren } from '../lib/tree-utils';
 
 /** DB nào cho phép tạo/xóa/đổi tên bảng & xóa database (khớp Capabilities.manageObjects). */
 const canManage = (kind: DbKind): boolean => kind !== 'redis';
@@ -33,6 +35,8 @@ interface Props {
 interface UiNode {
   key: string;
   title: string;
+  /** Chuỗi để bộ lọc so khớp khi khác nhãn hiển thị (node kết nối: chỉ tên, bỏ hậu tố "(kind)"). */
+  searchTitle?: string;
   icon: React.ReactNode;
   isLeaf: boolean;
   connectionId: string;
@@ -57,6 +61,24 @@ function iconFor(type: TreeNode['type']): React.ReactNode {
   }
 }
 
+/**
+ * Bọc phần khớp trong nhãn bằng <mark> để dễ nhìn khi đang lọc.
+ * Giả định khớp với logic của filterTree: substring, không phân biệt hoa/thường.
+ */
+function highlight(title: string, query: string): React.ReactNode {
+  const q = query.trim();
+  if (!q) return title;
+  const i = title.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return title;
+  return (
+    <>
+      {title.slice(0, i)}
+      <mark style={{ background: '#ffe58f', padding: 0 }}>{title.slice(i, i + q.length)}</mark>
+      {title.slice(i + q.length)}
+    </>
+  );
+}
+
 export function Sidebar({ connections, activeConnectionId, onConnectionsChanged, onOpen, onSelectTarget, onSelectDatabase }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<StoredConnection | null>(null);
@@ -72,6 +94,26 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
   } | null>(null);
   // Ngữ cảnh transfer (mở TransferModal) từ node database/schema được chọn.
   const [transferSrc, setTransferSrc] = useState<TransferSource | null>(null);
+  // Chuỗi lọc cây (client-side, chỉ trên node đã tải).
+  const [query, setQuery] = useState('');
+  // Trạng thái mở "thật" của người dùng — nguồn sự thật để quay lại sau khi xóa ô lọc. Trong
+  // lúc lọc, chỗ này chỉ CỘNG THÊM khi người dùng chủ động mở một nhánh mới (xem handleExpand),
+  // không bao giờ bị RÚT bớt do thao tác thu lại trong lúc lọc — thu một nhánh trong lúc lọc chỉ
+  // là xem tạm, không phải huỷ bỏ trạng thái gốc.
+  const [userExpandedKeys, setUserExpandedKeys] = useState<React.Key[]>([]);
+  // Trạng thái mở dùng để hiển thị TRONG lúc lọc (đầy đủ, gồm cả key tự mở do lọc và các lượt
+  // mở/thu người dùng tự làm khi đang lọc). Xóa ô lọc thì chỗ này thôi được đọc (expandedKeys
+  // quay về userExpandedKeys) chứ không bị dọn: mảng cũ nằm lại cho tới khi lượt lọc kế tiếp
+  // gieo lại nó từ userExpandedKeys, nên không mang gì sang lượt sau.
+  const [filterExpandedKeys, setFilterExpandedKeys] = useState<React.Key[]>([]);
+  // "Ảnh chụp" lượt render trước: có đang lọc không, và expandKeys lúc đó là gì — để phân biệt
+  // "vừa bắt đầu lọc" (cần gieo filterExpandedKeys từ userExpandedKeys) với "vẫn đang lọc nhưng
+  // query/dữ liệu đổi" (chỉ merge thêm phần expandKeys MỚI xuất hiện, giữ nguyên các nhánh
+  // người dùng đã tự thu trong lúc lọc).
+  const [prevFilter, setPrevFilter] = useState<{ filtering: boolean; expandKeys: string[] }>({
+    filtering: false,
+    expandKeys: [],
+  });
 
   // Node gốc: mỗi kết nối là 1 node cấp cao.
   const rootNodes: UiNode[] = useMemo(
@@ -79,6 +121,9 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       connections.map((c) => ({
         key: `conn:${c.id}`,
         title: `${c.name} (${c.kind})`,
+        // Lọc chỉ so trên tên kết nối: hậu tố "(kind)" mà cũng đem so thì những query rất đời
+        // thường như "post" (tìm bảng posts) sẽ tự khớp "(postgres)" và giữ nguyên cả nhánh.
+        searchTitle: c.name,
         icon: <DatabaseOutlined />,
         isLeaf: false,
         connectionId: c.id,
@@ -86,6 +131,35 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       })),
     [connections, treeData],
   );
+
+  const { nodes: visibleNodes, expandKeys } = useMemo(() => filterTree(rootNodes, query), [rootNodes, query]);
+  const isFiltering = query.trim().length > 0;
+
+  // Đồng bộ filterExpandedKeys ngay trong lúc render (không dùng useEffect, để tránh nhấp nháy
+  // một khung hình khi bắt đầu lọc). Chỉ xử lý khi đang lọc hoặc vừa thoát lọc; bỏ qua hẳn ở
+  // trạng thái "không lọc" ổn định vì filterTree luôn trả về một mảng expandKeys [] MỚI mỗi lần
+  // render khi query rỗng — so sánh theo tham chiếu sẽ sai nếu không có điều kiện chặn này.
+  if (isFiltering || prevFilter.filtering) {
+    if (isFiltering !== prevFilter.filtering || expandKeys !== prevFilter.expandKeys) {
+      if (isFiltering && !prevFilter.filtering) {
+        // Vừa bắt đầu một lượt lọc mới: gieo từ trạng thái người dùng + nhánh tự mở do lọc.
+        setFilterExpandedKeys(Array.from(new Set([...userExpandedKeys, ...expandKeys])));
+      } else if (isFiltering) {
+        // Vẫn đang lọc (gõ thêm/xóa ký tự, hoặc cây tải thêm dữ liệu): chỉ mở thêm nhánh MỚI
+        // xuất hiện trong expandKeys — không đụng tới nhánh người dùng đã tự thu trong lúc lọc.
+        const newlyAdded = expandKeys.filter((k) => !prevFilter.expandKeys.includes(k));
+        if (newlyAdded.length > 0) {
+          setFilterExpandedKeys((prev) => Array.from(new Set([...prev, ...newlyAdded])));
+        }
+      }
+      setPrevFilter({ filtering: isFiltering, expandKeys });
+    }
+  }
+
+  // Khi lọc: dùng trạng thái mở riêng của lượt lọc (filterExpandedKeys). Xóa ô lọc -> quay lại
+  // userExpandedKeys — nơi đã có sẵn các nhánh mở từ trước, cộng thêm nhánh mới được MỞ trong
+  // lúc lọc (không có nhánh nào bị THU trong lúc lọc làm mất khỏi đây, xem handleExpand).
+  const expandedKeys = isFiltering ? filterExpandedKeys : userExpandedKeys;
 
   const loadRoot = async (conn: StoredConnection) => {
     try {
@@ -107,6 +181,12 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     raw: n,
   });
 
+  /** Thu một node lại: bỏ key khỏi CẢ hai trạng thái mở để nó không sống lại khi xóa ô lọc. */
+  const collapseKey = (key: string) => {
+    setUserExpandedKeys((prev) => prev.filter((k) => k !== key));
+    setFilterExpandedKeys((prev) => prev.filter((k) => k !== key));
+  };
+
   const onLoadData = async (node: DataNode): Promise<void> => {
     const ui = node as unknown as UiNode;
     // Mở rộng node kết nối gốc: mở phiên rồi tải toàn bộ database/schema/keyspace bên trong.
@@ -116,13 +196,26 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       return;
     }
     if (!ui.raw || !ui.connectionId) return;
-    const children = await window.api.getChildNodes(ui.connectionId, ui.raw);
-    const uiChildren = children.map((n) => toUi(n, ui.connectionId));
-    // Chèn con vào đúng nhánh của kết nối.
-    setTreeData((prev) => ({
-      ...prev,
-      [ui.connectionId]: insertChildren(prev[ui.connectionId] ?? [], ui.key, uiChildren),
-    }));
+    try {
+      const children = await window.api.getChildNodes(ui.connectionId, ui.raw);
+      const uiChildren = children.map((n) => toUi(n, ui.connectionId));
+      // Chèn con vào đúng nhánh của kết nối.
+      setTreeData((prev) => ({
+        ...prev,
+        [ui.connectionId]: insertChildren(prev[ui.connectionId] ?? [], ui.key, uiChildren),
+      }));
+    } catch (err) {
+      // Từ khi truyền `expandedKeys` có kiểm soát, rc-tree không còn tự thu node khi loadData
+      // hỏng: nhánh rollback của nó gọi setUncontrolledState({expandedKeys, flattenNodes}, atomic)
+      // và bị chặn vì `expandedKeys` giờ là prop. Nó cũng nuốt luôn lỗi. Nên phải tự báo và tự thu,
+      // nếu không node nằm đó mở toang, rỗng, im lặng — người dùng đọc thành "database không bảng".
+      collapseKey(ui.key);
+      message.error(`Tải cây thất bại: ${(err as Error).message}`);
+      // Ném lại để rc-tree KHÔNG đánh dấu node là đã tải — lần mở sau vẫn gọi lại loadData.
+      // Promise này đã có handler của rc-tree (onNodeLoad `.catch` + `loadPromise.catch`) nên
+      // không sinh unhandled rejection.
+      throw err;
+    }
   };
 
   // Tải lại con của node theo key (sau khi thao tác cấu trúc).
@@ -202,6 +295,24 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
     }
   };
 
+  // Khi không lọc: ghi thẳng như cũ.
+  // Khi đang lọc: luôn ghi vào filterExpandedKeys (để hiển thị đúng, kể cả THU một nhánh đang
+  // tự mở do lọc). Nếu là lượt MỞ THÊM (so với expandedKeys đang hiển thị xuất hiện key mới) thì
+  // coi đó là quyết định thật của người dùng -> cộng thêm vào userExpandedKeys luôn, để nhánh đó
+  // còn giữ sau khi xóa ô lọc. Ngược lại, lượt THU LẠI không xóa gì khỏi userExpandedKeys — thu
+  // một nhánh trong lúc lọc chỉ là xem tạm, không phải huỷ bỏ trạng thái gốc của người dùng.
+  const handleExpand = (keys: React.Key[]) => {
+    if (!isFiltering) {
+      setUserExpandedKeys(keys);
+      return;
+    }
+    const addedKeys = keys.filter((k) => !expandedKeys.includes(k));
+    if (addedKeys.length > 0) {
+      setUserExpandedKeys((prev) => Array.from(new Set([...prev, ...addedKeys])));
+    }
+    setFilterExpandedKeys(keys);
+  };
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -218,15 +329,30 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
         </Button>
         <Button size="small" icon={<ReloadOutlined />} onClick={onConnectionsChanged} />
       </div>
+      <div className="sidebar-filter">
+        <Input
+          size="small"
+          allowClear
+          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+          placeholder="Lọc trong cây đang mở…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       <div className="sidebar-tree">
         {connections.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có kết nối" />
+        ) : visibleNodes.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Không có node nào khớp" />
         ) : (
           <Tree
             showIcon
             blockNode
             expandAction="click"
-            treeData={rootNodes as unknown as DataNode[]}
+            treeData={visibleNodes as unknown as DataNode[]}
+            expandedKeys={expandedKeys}
+            autoExpandParent={false}
+            onExpand={handleExpand}
             loadData={onLoadData}
             onSelect={onSelect}
             onDoubleClick={(_e, node) => {
@@ -262,14 +388,14 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                     }}
                   >
                     <span style={{ fontWeight: ui.connectionId === activeConnectionId ? 600 : 400 }}>
-                      {ui.title}
+                      {highlight(ui.title, query)}
                     </span>
                   </Dropdown>
                 );
               }
               const raw = ui.raw;
               const conn = connections.find((c) => c.id === ui.connectionId);
-              if (!raw || !conn || !canManage(conn.kind)) return <span>{ui.title}</span>;
+              if (!raw || !conn || !canManage(conn.kind)) return <span>{highlight(ui.title, query)}</span>;
 
               // Menu cho node database/schema.
               if (raw.type === 'database' || raw.type === 'schema') {
@@ -312,7 +438,7 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                       },
                     }}
                   >
-                    <span>{ui.title}</span>
+                    <span>{highlight(ui.title, query)}</span>
                   </Dropdown>
                 );
               }
@@ -326,12 +452,12 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
                 );
                 return (
                   <Dropdown trigger={['contextMenu']} menu={menu}>
-                    <span>{ui.title}</span>
+                    <span>{highlight(ui.title, query)}</span>
                   </Dropdown>
                 );
               }
 
-              return <span>{ui.title}</span>;
+              return <span>{highlight(ui.title, query)}</span>;
             }}
           />
         )}
@@ -367,37 +493,4 @@ export function Sidebar({ connections, activeConnectionId, onConnectionsChanged,
       )}
     </div>
   );
-}
-
-/** Tìm node theo key (đệ quy). */
-function findNode(nodes: UiNode[], key: string): UiNode | undefined {
-  for (const n of nodes) {
-    if (n.key === key) return n;
-    if (n.children) {
-      const found = findNode(n.children, key);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-/** Tìm key của node cha chứa childKey (đệ quy). */
-function findParentKey(nodes: UiNode[], childKey: string, parentKey?: string): string | undefined {
-  for (const n of nodes) {
-    if (n.key === childKey) return parentKey;
-    if (n.children) {
-      const found = findParentKey(n.children, childKey, n.key);
-      if (found) return found;
-    }
-  }
-  return undefined;
-}
-
-/** Chèn danh sách con vào node có key cho trước (đệ quy). */
-function insertChildren(nodes: UiNode[], key: string, children: UiNode[]): UiNode[] {
-  return nodes.map((n) => {
-    if (n.key === key) return { ...n, children };
-    if (n.children) return { ...n, children: insertChildren(n.children, key, children) };
-    return n;
-  });
 }
